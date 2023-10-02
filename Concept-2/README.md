@@ -1,9 +1,8 @@
-## Concept 2
+# Concept 2
 
-# Title: Validating existing breast cancer risk prediction models for the general population using self-reported or clinical data across diverse prospective cohorts
+Title: Validating existing breast cancer risk prediction models for the general population using self-reported or clinical data across diverse prospective cohorts
 
-# Aims
-
+ Aims
 
 1.	Derive estimated five- and ten-year absolute risks in participating BCRPP cohorts based on the existing risk models, including: Gail/BCRAT (including Asian American Breast Cancer Study model (AABCS) and African American model (CARE)); BOADICEA (excluding pathogenic variants and breast density), iCARE-Lit; Simplified Rosner-Colditz (2020); Tyrer-Cusick/IBIS (excluding pathogenic variants and mammographic density); and the BWHS Breast Cancer Risk Calculator. 
 
