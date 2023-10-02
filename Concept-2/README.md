@@ -1,6 +1,6 @@
 ## Concept 2
 
-# TITLE: Validating existing breast cancer risk prediction models for the general population using self-reported or clinical data across diverse prospective cohorts
+# Title: Validating existing breast cancer risk prediction models for the general population using self-reported or clinical data across diverse prospective cohorts
 
 # Aims
 
