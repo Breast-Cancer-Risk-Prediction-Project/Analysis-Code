@@ -1,5 +1,5 @@
 # Analysis-Code
- This repostiry stores analytic code for BCRPP project. The reposirtoy is organized by project.
+ This repository stores analytic code for BCRPP project. The repository is organized by project.
 
  **Listing of BCRPP Projects**
 
