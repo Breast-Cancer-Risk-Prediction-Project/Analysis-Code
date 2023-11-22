@@ -830,9 +830,9 @@ data_validategail$time.of.onset<-ifelse(data_validategail$case==1, data_validate
 #For validation cannot have NAs - delete if time.of.onset==NA
 
 data_validategail_full<-data_validategail[which (!is.na(data_validategail$time.of.onset)),]
-delete.ids<-setdiff(data_validategail$id, data_validategailnew$id)
+delete.ids<-setdiff(data_validategail$id, data_validategail_full$id)
 
-data_gail_final2new<-data_gail_full[which (! data_gail_final2$id %in% delete.ids),]
+data_gail_final2new<-data_gail_final2[which (! data_gail_final2$id %in% delete.ids),]
 
 data_validategail_white<-data_validategail_full[which (data_validategail_full$id %in% whiteids & !data_validategail_full$id %in% delete.ids),]
 data_validategail_black<-data_validategail_full[which (data_validategail_full$id %in% blackids & !data_validategail_full$id %in% delete.ids),]
