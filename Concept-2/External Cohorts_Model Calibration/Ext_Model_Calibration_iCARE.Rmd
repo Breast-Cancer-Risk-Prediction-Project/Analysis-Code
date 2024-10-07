@@ -1,3 +1,4 @@
+```{r include=FALSE}
 # This file will read in your clean validation dataset, created after
 # running "Step1.DataCleaning.R" and will perform model calibration
 # using iCARE-Validate for the iCARE model.
@@ -15,6 +16,7 @@
 
 #PLEASE INSERT COHORT ACRONYM IN [] BELOW for the FILENAME
 #AND INSERT RUN DATE
+```
 
 ---
 title: "Model Validation iCARE [COHORT ACRONYM]"
@@ -23,6 +25,15 @@ date: "MM-DD-YYYY"
 ---
 
 #Source the data cleaning file to use correct dataset & source functions.
+
+```{r setup, include=FALSE}
+r <- getOption("repos")
+r["CRAN"] <- "http://cran.cnr.berkeley.edu/"
+options(repos = r)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
 
 ```{r}
 #Dataset: This is the dataset created from Step1.DataCleaning.R 
@@ -34,11 +45,6 @@ valdata<-read.csv("FILEPATH/bcrpp_valdata.R")
 #Functions required
 source("FILEPATH/Functions_ExistingModelValidation.R", local=knitr::knit_global())
 ```
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
 
 ```{r echo=FALSE, include=FALSE}
 suppressWarnings(library('tidyverse'))
@@ -63,8 +69,10 @@ local({r <- getOption("repos")
 data_icare <- valdata %>%  
   mutate(time.of.onset=ifelse(case_5yinv==1 & !is.na(timediff_case_yr), timediff_case_yr, Inf),
          time.of.onset2=ifelse(case_5y==1 & !is.na(timediff_case_yr), timediff_case_yr, Inf),
-         heightnew=height/10, 
-         ageend=age+5)
+         heightnew=height/10,
+         age=round(age),
+         agestart=round(age),
+         ageend=round(age)+5)
 
 #fix bbd and height for icare model
 drops<-c("height")
@@ -116,15 +124,16 @@ data_icare_ge50<- data_icare_ge50 %>%
 
 ```{r}
 #Note: there cannot be any NA time of onset 
-
-data_icare_lt50_val<-data_icare_lt50[,c("subject_id", "cohort", "race","case_5yinv","age","ageend","time.of.onset")]
+data_icare_lt50_val<-data_icare_lt50[,c("subject_id", "cohort", "race","case_5yinv","age","ageend","time.of.onset","weight")]
 #change names
-names(data_icare_lt50_val)<-c("id","cohort","race","observed.outcome","study.entry.age","study.exit.age","time.of.onset")
+names(data_icare_lt50_val)<-c("id","cohort","race","observed.outcome","study.entry.age","study.exit.age","time.of.onset","sampling.weights")
+
 data_icare_lt50_val$sampling.weights<-1
 
-data_icare_ge50_val<-data_icare_ge50[,c("subject_id", "cohort", "race","case_5yinv","age","ageend","time.of.onset")]
+data_icare_ge50_val<-data_icare_ge50[,c("subject_id", "cohort", "race","case_5yinv","age","ageend","time.of.onset","weight")]
 #change names
-names(data_icare_ge50_val)<-c("id","cohort","race","observed.outcome","study.entry.age","study.exit.age","time.of.onset")
+names(data_icare_ge50_val)<-c("id","cohort","race","observed.outcome","study.entry.age","study.exit.age","time.of.onset","sampling.weights")
+
 data_icare_ge50_val$sampling.weights<-1
 ```
 
@@ -138,11 +147,13 @@ BiocManager::install("iCARE")
 library(iCARE)
 ```
 
-** Data notes: iCARE dependencies include: *model.lit.lt50*, *cov_info_lit_lt50*, *model.lit.ge50*, and *cov_info_lit_ge50* apply to ALL studies**
-** For US based studies, you can use *bc_inc_US* and *mort_US* and *ref_lit_lt50_US* and *ref_lit_ge50_US***
-** If you are a non-US cohort, PLEASE USE reference datasets, incidence rates, and mortality rates that are relevant to your country/region**
-** You will need to replace reference to datasets in 2b and 2c to align with your data **
-** Variable names included in ref. dataset need to be same names as those in the validation dataset. Change names in validation dataset if needed.**
+```{r include=FALSE}
+# ** Data notes: iCARE dependencies include: *model.lit.lt50*, *cov_info_lit_lt50*, *model.lit.ge50*, and *cov_info_lit_ge50* apply to ALL studies**
+# ** For US based studies, you can use *bc_inc_US* and *mort_US* and *ref_lit_lt50_US* and *ref_lit_ge50_US***
+# ** If you are a non-US cohort, PLEASE USE reference datasets, incidence rates, and mortality rates that are relevant to your country/region**
+# ** You will need to replace reference to datasets in 2b and 2c to align with your data **
+# ** Variable names included in ref. dataset need to be same names as those in the validation dataset. Change names in validation dataset if needed.**
+```
 
 ##  2b. <50 absolute risk
 ```{r}
@@ -224,6 +235,12 @@ icarerisks
 
 ```{r}
 data_icare_full<-rbind(data_icare_lt50_val, data_icare_ge50_val)
+data_icare_full$absrisk<-as.numeric(data_icare_full$absrisk)
+a<-summarizerisks(data_icare_full, absrisk)
+b<-summarizerisks(data_icare_full, lp)
+icarerisks<-rbind(a,b)
+rownames(icarerisks)<-c("AbsRisk","LP")
+icarerisks
 ```
 
 # Step 4. Calibraiton
@@ -268,9 +285,9 @@ AUC
 ```
 
 ```{r}
-AUCageadjust<-as.data.frame(AUCcalc_ageadjust(data_icare_full))
-print("AUC by age quantiles")
-AUCageadjust
+AUCageinc<-as.data.frame(AUCcalc_ageinc(data_icare_full))
+print("AUC age incorporated")
+AUCageinc
 ```
 
 

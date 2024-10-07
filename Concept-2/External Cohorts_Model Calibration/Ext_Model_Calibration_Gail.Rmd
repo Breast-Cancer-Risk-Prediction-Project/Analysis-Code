@@ -1,3 +1,6 @@
+```{r include=FALSE}
+#Instructions:
+
 # This file will read in your clean validation dataset, created after
 # running "Step1.DataCleaning.R" and will perform model calibration
 # using iCARE-Validate for the Gail (BCRAT) model.
@@ -9,9 +12,11 @@
 
 # Please send the finalized document to kristen_brantley@dfci.harvard.edu
 # If any issues arise when trying to run this document, please reach out to Kristen Brantley. 
+# PLEASE INSERT COHORT ACRONYM IN [] BELOW for the FILENAME
+# AND INSERT RUN DATE
+```
 
-#PLEASE INSERT COHORT ACRONYM IN [] BELOW for the FILENAME
-#AND INSERT RUN DATE
+
 ---
 title: "Ext_Model_Calibration_Gail [COHORT ACRONYM]"
 output: html_document
@@ -19,6 +24,10 @@ date: "MM-DD-YYYY"
 ---
 
 ```{r setup, include=FALSE}
+r <- getOption("repos")
+r["CRAN"] <- "http://cran.cnr.berkeley.edu/"
+options(repos = r)
+
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -34,9 +43,7 @@ valdata<-read.csv("filepath/bcrpp_valdata.R")
 #Functions required
 source("FILEPATH/Functions_ExistingModelValidation.R", local=knitr::knit_global())
 ```
-```{r}
-source("C:/Users/krist/Dropbox/BCRP Project/Code/Model Calibration/External Code/Functions_ExistingModelValidation.R", local=knitr::knit_global())
-```
+
 # Step 1. Load required packages
 
 ```{r echo=FALSE, include=FALSE}
@@ -70,35 +77,37 @@ data("BrCa_beta")
 # Step 2. In Gail model, all missing variables are set to the most common
 
 ## 2a. Create variables for Gail model
-```{r}
+```{r echo = T, results = 'hide'}
 data_gail <-valdata[,c("subject_id","id","age","race","ethnicity","agemenarche","ageflb","famhx_first","biopsy_num","atyp_hyp","parous","cohort", "case_5yinv", "case_5y", "timediff_case_yr")]
 ```
 ## 2b. Reassign values based on Gail parameters
-        
-        Missing data assignments
-        The standards used in the online Gail model were used for variables with missing data. 
-        Women with unknown age at menarche were assigned menarche at 14 years of age or older. 
-        Women with unknown age at first live birth were classified as giving birth before age 20 years. 
-        Women with missing family history were classified as having no family history. 
-        To verify agreement between the code we used and the online tool, we randomly selected 10 patients 
-        and compared the 5-year and lifetime risk estimates obtained from the code given us to those from the
-        online risk assessment tool. 
-        
-        For our purposes, assign all Asian under "Chinese" for abs.risk calibration
-        Consider all hispanics american born
-        1=Wh White 1983-87 SEER rates (rates used in NCI BCRAT)
-        2=AA African-American
-        3=HU Hispanic-American (US born) 1995-04
-        4=NA Other (Native American and unknown race)
-        5=HF Hispanic-American (Foreign born) 1995-04
-        6=Ch Chinese-American
-        7=Ja Japanese-American
-        8=Fi Filipino-American
-        9=Hw Hawaiian-American/*
-        10=oP Other Pacific Islander
-        11=oA Other Asian
+```{r include=FALSE}       
+        # Missing data assignments
+        # The standards used in the online Gail model were used for variables with missing data. 
+        # Women with unknown age at menarche were assigned menarche at 14 years of age or older. 
+        # Women with unknown age at first live birth were classified as giving birth before age 20 years. 
+        # Women with missing family history were classified as having no family history. 
+        # To verify agreement between the code we used and the online tool, we randomly selected 10 patients 
+        # and compared the 5-year and lifetime risk estimates obtained from the code given us to those from the
+        # online risk assessment tool. 
+        # 
+        # For our purposes, assign all Asian under "Chinese" for abs.risk calibration
+        # Consider all hispanics american born
+        # 1=Wh White 1983-87 SEER rates (rates used in NCI BCRAT)
+        # 2=AA African-American
+        # 3=HU Hispanic-American (US born) 1995-04
+        # 4=NA Other (Native American and unknown race)
+        # 5=HF Hispanic-American (Foreign born) 1995-04
+        # 6=Ch Chinese-American
+        # 7=Ja Japanese-American
+        # 8=Fi Filipino-American
+        # 9=Hw Hawaiian-American
+        # 10=oP Other Pacific Islander
+        # 11=oA Other Asian
 
-        Set end age as age+5 and +10 years
+       # Set end age as age+5 and +10 years
+```
+
 ```{r}
 data_gail <- data_gail %>%
   mutate(gailrace=ifelse(race==1 & ethnicity==1, 3, ifelse(race==1 & ethnicity !=1 ,1, ifelse(race==2, 2, ifelse(race==5, 4, ifelse(race==3, 6,    ifelse(race==4, 9, 4)))))),
@@ -114,7 +123,7 @@ data_gail <- data_gail %>%
 ```
 
 ## 2c. Keep only gail defined variables 
-```{r}
+```{r echo = T, results = 'hide'}
 #5y risk
 data_gail<-data_gail[,c("subject_id","cohort","age","gailageend5y","gailrace","gailagemen","gailageflb","gailnrels","gailbiop","gailatyp", "case_5yinv", "case_5y", "timediff_case_yr")]
 #Change names
@@ -124,16 +133,14 @@ names(data_gail)<-c("id","cohort","T1","T2","Race","AgeMen","Age1st","N_Rels","N
 
 ## Data check! 
       Make sure the variables are recoded correctly and check errors
-```{r}
+```{r echo = T}
       recodechecktable<-recode.check(data_gail, Raw_Ind=1)
       test<-recodechecktable[which (recodechecktable$Error_Ind>0),]
       test
-    ```
-      If any observations show up on this print out then these have errors 
-      that need to be fixed in the assignment of raw gail vars.
-      If so, please Contact Kristen Brantley
-
-
+      #If any observations show up on this print out then these have errors 
+      #that need to be fixed in the assignment of raw gail vars.
+      #If so, please Contact Kristen Brantley
+```
 
 # Step 3. Estimate relative and absolute risks from Gail model
 
@@ -160,8 +167,7 @@ data_gail$relrisk_gail<-ifelse(data_gail$T1>=50, data_gail$RR_Star2, data_gail$R
 data_gail$absrisk_gail<-absrisk_gail
 ```
 
-## Data check!
-
+### Data check!
 Make sure mean for Error_Ind=0, otherwise there is an error in the file
 Note, abs risk is given as a % for 5 years
 ```{r}
@@ -173,13 +179,17 @@ For comparison, classify individuals into relative risk categories & absolute ri
 <15%, 15-20%, >20%
 ```{r}
 data_gail$relriskcat<-ifelse(data_gail$relrisk_gail<1.15, 1, ifelse(data_gail$relrisk_gail>=1.15 & data_gail$relrisk_gail<1.54, 2, 3))
+data_gail$absrisk_gail<-as.numeric(absrisk_gail)
 data_gail$absriskcat<-quantcut(data_gail$absrisk_gail, q=3)
 #ties are in same group
 data_gail$absriskcat_num<-as.numeric(data_gail$absriskcat)
 data_gail$absrisk<-data_gail$absrisk_gail/100
+```
 
-#Save absolute risks and absolute risk cats for Gail model for all if wanted
-#write.csv(data_gail, "filepath/Gail_5yrisks.csv")
+```{r}
+#OPTIONAL
+#Save absolute risks and absolute risk cats for Gail model for all if wanted- optional
+write.csv(data_gail, "filepath/Gail Model/Gail_5yrisks.csv")
 ```
 
 # Step 4.Descriptive data for Gail risks
@@ -295,14 +305,14 @@ plot(a1b)
 ```
 
 # AUC for Gail model
-```{r}
+```{r echo=F}
 AUC<-as.data.frame(AUCcalc(data_gail_validate_inv))
 print("AUC overall")
 AUC
 ```
 
-```{r}
-AUCageadjust<-as.data.frame(AUCcalc_ageadjust(data_gail_validate_inv))
-print("AUC by age quantiles")
-AUCageadjust
+```{r echo=F}
+AUCageinc<-as.data.frame(AUCcalc_ageinc(data_gail_validate_inv))
+print("AUC age incorporated")
+AUCageinc
 ```

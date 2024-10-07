@@ -24,9 +24,26 @@ data_brca<-read.csv("/FILEPATH.csv")
 
 data_core$cohort<-"ACRONYM"
 
-data_core<-whs_core_data
-data_brca<-whs_brca_data
-data_core$cohort<-"whs"
+
+install.packages("tidyverse")
+install.packages("palmerpenguins")
+install.packages(c("boxr", "base", "usethis"))
+
+library(boxr)
+
+###########################
+# AUTHENTICATION
+###########################
+# Authentication is the process of syncing RStudio with your Box.com account.
+# If you are not already logged into Box after running this code, you may be
+# asked to log into Box. Identify Box as hard disk in the cloud.
+
+box_auth(client_id = "627lww8un9twnoa8f9rjvldf7kb56q1m",
+         client_secret = "gSKdYKLd65aQpZGrq9x4QVUNnn5C8qqm") 
+
+# Set the working directory to your Box folder using the folder ID
+box_setwd(dir_id=228491238561)
+
 
 ###############################################################################  
 #2. You must ensure ID formats match for core and brca datasets. 
@@ -45,7 +62,7 @@ if (class(data_core$subject_id) !="character"){print ("Error: Subject ID not cha
   if("subject_id" %in% colnames(data_brca)){ matchvar="subject_id" }
   if("id" %in% colnames(data_brca)){ matchvar="id" }
   if("subject_id" %in% colnames(data_brca) & "id" %in% colnames(data_brca)){matchvar="both"}
-  matchvar
+  
   #Change id to character if numeric
   if (class(data_core$id) !="character"){data_core$subject_id<-as.character(data_core$id)}
 
@@ -57,7 +74,7 @@ if (class(data_core$subject_id) !="character"){print ("Error: Subject ID not cha
   if (matchvar=="subject_id"|matchvar=="both"){
     if (nchar(data_core$subject_id[1]) != nchar(data_brca$subject_id[1])){print("Error, core and brca subject IDs do not align")}
   }
-  
+
 #If these errors print please fix formatting of ID variables before moving on. 
 
 #Coding solutions to common mismatches are included below. 
@@ -238,6 +255,23 @@ if (dim(data_brca)[1]==dim(data_core)[1]){
   }
   }
 
+  
+  #In case BBD is "bbd" in your dataset
+  data_allcase<-as.data.frame(data_allcase)
+  data_allcontrol<-as.data.frame(data_allcontrol)
+  
+  lookup<-c(BBD_history="bbd_history", BBD_type1="bbd_type1", BBD_type2="bbd_type2",BBD_type3="bbd_type3",BBD_type4="bbd_type4",
+            BBD_year1="bbd_year1", BBD_year2="bbd_year2", BBD_year3="bbd_year3", BBD_year4="bbd_year4",BBD_number="bbd_number",
+            Biopsies_yesno="biopsies_yesno", Biopsies_number="biopsies_number")
+  
+  #change BBD variable names to BBD if bbd
+  data_allcase <- data_allcase %>%
+    rename(any_of(lookup))
+  
+  data_allcontrol <- data_allcontrol %>%
+    rename(any_of(lookup))
+  
+
 #3c. Make sure ALL variable names in DD are included in dataset
           names1<-c("subject_id","id","record_date","qcycle","baseline","lastfup","lastfup_reason",
                    "Status","birth_year","sex","age","race","ethnicity","education","AJAncestry",
@@ -281,13 +315,16 @@ if (dim(data_brca)[1]==dim(data_core)[1]){
       
 #3d. Final merge
         data<-rbind(data_allcontrol, data_allcase)
-      
+
+        #End of step 1 data cleaning
+        
+        #Step 2 data cleaning:
 #######################################################
 #4. Date format alignment - missing to NAs - and calculations
 #   Note: all date formats must match DD for this code to work.
 #######################################################
-
-data<-data %>%
+    
+    data<-data %>%
     mutate(record_date=ifelse(record_date=="08/08/8000", NA, record_date),
           record_year=substr(record_date, 7,10), 
           record_year=as.numeric(record_year),
@@ -300,23 +337,22 @@ data<-data %>%
           dxyear_primary2num=suppressWarnings(as.numeric(dxyear_primary2)), 
           dxyear_primary2=ifelse(dxyear_primary2num>record_year, dxyear_primary2num, ifelse(dxyear_primary2num==record_year, dxyear_primary2num+1, NA)),
           #Fix PLCO because record date is unavailable & WHI
-          bbd_year1=ifelse(bbd_year1==8888| bbd_year1==7777| bbd_year1==888, NA, bbd_year1),
-          bbd_year2=ifelse(bbd_year2==8888| bbd_year2==7777| bbd_year2==888, NA, bbd_year2),
-          bbd_year3=ifelse(bbd_year3==8888| bbd_year3==7777| bbd_year3==888, NA, bbd_year3),
-          bbd_year4=ifelse(bbd_year4==8888| bbd_year4==7777| bbd_year4==888, NA, bbd_year4),
+          BBD_year1=ifelse(BBD_year1==8888| BBD_year1==7777| BBD_year1==888, NA, BBD_year1),
+          BBD_year2=ifelse(BBD_year2==8888| BBD_year2==7777| BBD_year2==888, NA, BBD_year2),
+          BBD_year3=ifelse(BBD_year3==8888| BBD_year3==7777| BBD_year3==888, NA, BBD_year3),
+          BBD_year4=ifelse(BBD_year4==8888| BBD_year4==7777| BBD_year4==888, NA, BBD_year4),
           birth_year=ifelse(birth_year==8888, NA, birth_year),
           lastscreen_year=ifelse(lastscreen_year==8888| lastscreen_year==7777| lastscreen_year==888| lastscreen_year==777, NA, lastscreen_year),
           lastfup=ifelse(lastfup>=7777, NA, lastfup))
-        
-     
+       
         #lubridate is required for this step
        
         data<- data %>%
           dplyr::mutate(record_date=as.Date(record_date, format="%d/%m/%Y"),
-                        bbd_date1=suppressWarnings(ymd(bbd_year1, truncated=2L)),
-                        bbd_date2=suppressWarnings(ymd(bbd_year2, truncated=2L)),
-                        bbd_date3=suppressWarnings(ymd(bbd_year3, truncated=2L)),
-                        bbd_date4=suppressWarnings(ymd(bbd_year4, truncated=2L)),
+                        bbd_date1=suppressWarnings(ymd(BBD_year1, truncated=2L)),
+                        bbd_date2=suppressWarnings(ymd(BBD_year2, truncated=2L)),
+                        bbd_date3=suppressWarnings(ymd(BBD_year3, truncated=2L)),
+                        bbd_date4=suppressWarnings(ymd(BBD_year4, truncated=2L)),
                         birth_date=ymd(birth_year, truncated=2L),
                         lastscreen_date=suppressWarnings(ymd(lastscreen_year, truncated=2L)),
                         primary1dx_date=ymd(dxyear_primary1, truncated=2L),
@@ -327,22 +363,22 @@ data<-data %>%
 #5. Ensure certain variables are numeric, if not already
 ########################################################
 
-asnumeric<-function(data, varlist){
-  for (i in varlist){
-    data[,i]<-as.numeric(data[,i])
-  }
-  return(data)
-}
-
+        data<-as.data.frame(data)
+        asnumeric<-function(data, varlist){
+          for (i in varlist){
+            data[,i]<-as.numeric(data[,i])
+          }
+          return(data)
+        }
+        
         varlist1<-c("height","weight","bmi","waist","hip","whr","bmi_earlyadult","alcohol_init","alcohol_amt","alcohol_stop",
                     "alcohol_dur","smoking_dur","smoking_amt","smoking_stop","smoking_init","agemenarche","parity","parous",
                     "age_preg1","age_preg2","age_preg3","age_preg4","age_preg5","age_preg6","age_preg7","age_preg8","age_preg9","age_preg10",
                     "breastfeed_dur_b1","breastfeed_dur_b2","breastfeed_dur_b3","breastfeed_dur_b4","breastfeed_dur_b5","breastfeed_dur_b6","breastfeed_dur_b7","breastfeed_dur_b8","breastfeed_dur_b9","breastfeed_dur_b10",
                     "ocuse_dur","ocuse_start","ocuse_stop","hrt_dur","hrtep_dur","hrteonly_dur","pa_mets","pa_pct",
                     "size_primary1","size_primary2","ki67_primary1","ki67_primary2")
-       
+        
         data<-suppressWarnings(asnumeric(data, varlist1))
-       
          ###################################################
         #6. Outlier assignment 
         ################################################### 
@@ -498,193 +534,198 @@ is.na(data2)<-data2==666
 #New dataset replacing outliers with NA for all variables - rename as data3 to preserve original
 data3<- data2 %>% 
   mutate( #outliers to NA
-          waist=ifelse(waist_outlier==1, NA, waist),
-          hip=ifelse(hip_outlier==1, NA, hip),
-          age=ifelse(age_outlier ==1,NA, age),
-          weight=ifelse(weight_outlier ==1, NA, weight),
-          height=ifelse(height_outlier ==1, NA, height),
-          agemenarche=ifelse(agemenarche_outlier ==1, NA, agemenarche),
-          bmi_earlyadult=ifelse(bmiearly_outlier ==1, NA, bmi_earlyadult),  
-          bmi=ifelse(bmi_outlier ==1, NA, bmi),
-          smoke_cigsperday=ifelse(smokingamt_outlier==1, NA, smoking_amt),
-          agemenarche=ifelse(agemenarche_outlier==1, NA, agemenarche),
-          parity=ifelse(parity_outlier==1, NA, parity),
-          age_preg1=ifelse(agepreg1_outlier==1, NA, age_preg1),
-          smoke_dur=ifelse(smokingdur_outlier==1, NA, smoking_dur),
-          smoking_amt=ifelse(smokingamt_outlier==1, NA, smoking_amt),
-          alc_dur=ifelse(alcoholdur_outlier==1, NA, alcohol_dur),
-          alc_amt=ifelse(alcoholamt_outlier==1, NA, alcohol_amt),
-          size_primary1=ifelse(sizeprimary1_outlier==1, NA, size_primary1),
-          ki67_primary1=ifelse(ki67primary1_outlier==1, NA, ki67_primary1),
-          #Create new variables for analysis and descriptive stats
-         
-          agemenarche_cat3=ifelse(agemenarche>0 & agemenarche<12, 1, 
-                                  ifelse(agemenarche >=12 & agemenarche<14, 2, 
-                                         ifelse(agemenarche >=14, 3, NA))), 
-          agemenarche_cat7=ifelse(agemenarche>0 & agemenarche<10.5, 1, 
-                                  ifelse(agemenarche>=10.5 & agemenarche<11.5, 2, 
-                                         ifelse(agemenarche>=11.5 & agemenarche<12.5, 3, 
-                                                ifelse(agemenarche>=12.5& agemenarche<13.5, 4, 
-                                                       ifelse(agemenarche>=13.5&agemenarche<14.5, 5, 
-                                                              ifelse(agemenarche>=14.5&agemenarche<15.5, 6, 
-                                                                     ifelse(agemenarche>=15.5, 7, NA))))))),
-          agemenarche_cat2=ifelse(agemenarche>0 & agemenarche<14, 1, 
-                                  ifelse(agemenarche>=14, 2, NA)),
-          age_ge50=ifelse(age<50 & !is.na(age), 0, 
-                          ifelse(age>=50, 1, NA)),
-          age_cat1=ifelse(age>=45 & age<50, 1, 
-                          ifelse(age>=50 & age<60,2,NA)),
-          age_cat2=ifelse(age>=45 & age<50, 1, 
-                          ifelse(age>=50&age<55, 2, 
-                                 ifelse(age>=55&age<60, 3, 
-                                        ifelse(age>=60 & age<65, 4, 
-                                               ifelse(age>=65 & age<75, 5, NA))))),
-          height_in=height/2.54,
-          height_cat3=ifelse(height>0 & height <160, 1,
-                             ifelse(height >=160 & height<170, 2, 
-                                    ifelse(height>=170, 3, NA))),
-          bmi_cat3=ifelse(bmi>0 & bmi<25, 1,
-                          ifelse(bmi>=25 & bmi<30, 2, 
-                                 ifelse(bmi>=30, 3, NA))),
-          bmi_cat4=ifelse(bmi>0 & bmi<18.5, 1, 
-                          ifelse(bmi>=18.5&bmi<25, 2, 
-                                 ifelse(bmi>=25&bmi<30, 3, 
-                                        ifelse(bmi>=30, 4, NA)))),
-          bmi_cat5=ifelse(bmi>0 & bmi<21, 1, 
-                          ifelse(bmi>=21&bmi<23, 2, 
-                                 ifelse(bmi>=23&bmi<35, 3, 
-                                        ifelse(bmi>=25 & bmi<27, 4, 
-                                               ifelse(bmi>=27, 5, NA))))),
-          bmi_cat2=ifelse(bmi>0 & bmi<30, 1, 
-                          ifelse(bmi>=30,2, NA )),
-          
-          #code peri as premeno
-          meno_status2=ifelse(meno_status==2 | meno_status==3, 1, ifelse(meno_status==1, 2, NA)),
-          
-          agemeno_combo=ifelse(meno_status2==1 & age_cat1==1, 1, 
-                               ifelse(meno_status2==1 & age_cat1==2, 2, 
-                                      ifelse(meno_status2==2 & age_cat2==1, 3, 
-                                             ifelse(meno_status2==2 & age_cat2==2, 4, 
-                                                    ifelse(meno_status2==2 &age_cat2==3, 5, 
-                                                           ifelse(meno_status2==2 &age_cat2==4, 6,NA)))))),
-          ageflb=ifelse(age_preg1>=agemenarche & age_preg1<=age & !is.na(age) & !is.na(age_preg1) , age_preg1, NA),
-          
-          #recode parous if parous and ageflb don't match - change parous to 1 if there is a valid age at first birth that fits in range above
-          parous=ifelse(parous==1| (!is.na(ageflb) |(!is.na(parity)& parity>0)), 1, 0),
-          #recode parous if parous and parity do not match
-          parity_new=ifelse(parous==0, 0,
-                            ifelse(parous==1 & parity>0 & !is.na(parity), parity, 
-                                   ifelse(parous==1 & (parity==0 | is.na(parity)), 1, NA))),
-          parity_cat=ifelse(parity_new<3, parity_new, 3),
-          ageflb_cat5=ifelse(parous==0, 1, 
-                             ifelse(ageflb>0 & ageflb<20, 2, 
-                                    ifelse(ageflb>=20 & ageflb<25, 3, 
-                                           ifelse(ageflb>=25 & ageflb<30, 4, 
-                                                  ifelse(ageflb>=30, 5, NA))))),
-          ageflb_cat4=ifelse(parous==0, 1, 
-                             ifelse(ageflb>0 &ageflb<25, 2, 
-                                    ifelse(ageflb>=25&ageflb<30, 3, 
-                                           ifelse(ageflb>=30, 4, NA)))),
-          ageflb_parous=ifelse(ageflb>0 & ageflb<20, 1, 
-                               ifelse(ageflb>=20 & ageflb<25, 2, 
-                                      ifelse(ageflb>=25&ageflb<30, 3, 
-                                             ifelse(ageflb>=30, 4, NA)))),
-        
-          famhx_first=ifelse(fhx_fdr_brca==0, 0, 
-                             ifelse(fhx_fdr_brca==1, 1, NA)),
-          ever_biopsy=biopsies_yesno,
-          biopsy_num=ifelse(!is.na(biopsies_number), biopsies_number, 
-                              ifelse(is.na(biopsies_number) & biopsies_yesno==1, 1, 
-                                   ifelse(is.na(biopsies_number) & biopsies_yesno==0, 0, NA))),
-          atyp_hyp=ifelse(biopsy_num>0 & (bbd_type1==3 | bbd_type2==3 | bbd_type3==3 | bbd_type4==3), 1, 
-                          ifelse(biopsy_num>0 & (bbd_type1==1|bbd_type1==2|bbd_type2==1|bbd_type2==2|bbd_type3==1|bbd_type3==2), 0, NA)),
-          biop_noatyp=ifelse(biopsy_num>0 & atyp_hyp==0, 1, 
-                             ifelse(biopsy_num>0 & atyp_hyp==1, 0, NA)),
-          
-          biopsy_cat3=ifelse(biopsies_yesno==0 | bbd_type1==1, 1, 
-                             ifelse(biopsies_yesno==1 & bbd_type1 !=2, 2, 
-                                    ifelse(bbd_type1==2, 3, NA))),
-          biopsy_age50=ifelse(biopsy_num==0 & age_ge50==0, 1, 
-                              ifelse(biopsy_num==1&age_ge50==0, 2, 
-                                     ifelse(biopsy_num>1 & age_ge50==0, 3, 
-                                            ifelse(biopsy_num==0 & age_ge50==1, 4, 
-                                                   ifelse(biopsy_num==1 & age_ge50==1, 5, 
-                                                          ifelse(biopsy_num>1&age_ge50==1, 6, NA)))))),
-          
-          postmeno_dur_hold=ifelse (meno_status2==2, age-meno_age, 
-                                    ifelse(meno_status2==1, 0, NA)),
-          postmeno_dur=ifelse(postmeno_dur_hold<0, 0, postmeno_dur_hold),
-          hrt_use=ifelse(hrtuse==0|meno_status2==1, 1, 
-                         ifelse(hrtuse==1 & meno_status2==2, 2, 
-                                ifelse(hrtuse==2 & meno_status2==2, 3, 
-                                       ifelse(hrtuse==3 & meno_status2==2, 4, NA)))),
-          hrt_use_icare=ifelse(hrt_use==1, 0, 
-                               ifelse(hrt_use==2, 1,
-                                      ifelse(hrt_use==3, 2, 
-                                             NA))),
-          pmh_type_cur=ifelse(hrtuse==0|hrtuse==2, 1, 
-                              ifelse(hrtuse_eonly==1, 3, 
-                                     ifelse(hrtuse_ep==1, 4,
-                                            ifelse (hrtuse==1, 2, NA)))),
-          pmh_type_icare=ifelse(pmh_type_cur==3, 0, ifelse(pmh_type_cur==4, 1, NA)), 
-          pmh_type_any=ifelse(hrtuse==0, 1, 
-                              ifelse((hrtuse==2|hrtuse==3) & hrtuse_eonly!=2 & hrtuse_eonly!=3 & hrtuse_ep!=2 & hrtuse_ep!=3, 2, 
-                                     ifelse((hrtuse==2 | hrtuse==3) & (hrtuse_eonly==2 | hrtuse_eonly==3), 3, 
-                                            ifelse((hrtuse==2 | hrtuse==3) & (hrtuse_ep==2|hrtuse_ep==3), 4, 
-                                                   ifelse(pmh_type_cur==2, 5, 
-                                                          ifelse(pmh_type_cur==3, 6, 
-                                                                 ifelse(pmh_type_cur==4, 7, NA))))))),
-          #reclassify alcohol status if "unkn. current or former and has alcohol_amt list for current use, change to current
-          alcohol_status=ifelse(alcohol_amt>0 & !is.na(alcohol_amt) & alcohol_status==3, 1, alcohol_status),
-          #Only assign an amount if they listed current drinker or unknown current/never, otherwise 0 if not current drinker, NA if unk. 
-          alcgm=ifelse(is.na(alcohol_amt)| alcohol_status==2 | alcohol_status==4, 0,
-                       ifelse((alcohol_status==1|alcohol_status==3) & !is.na(alcohol_amt), alcohol_amt, NA)),
-          alcgm_cat4=ifelse(alcohol_status==2|alcohol_status==4, 1, 
-                            ifelse(alcgm>0 & alcgm<11, 2,
-                                   ifelse(alcgm>=11 & alcgm<22, 3,
-                                          ifelse(alcgm>=22, 4, NA)))),
-          alcgm_cat7=ifelse(alcgm_cat4==1, 1, 
-                            ifelse(alcgm>0& alcgm<5, 2,
-                                   ifelse(alcgm>=5&alcgm<15,3,
-                                          ifelse(alcgm>=15 & alcgm<25, 4,
-                                                 ifelse(alcgm>=25&alcgm<35, 5,
-                                                        ifelse(alcgm>=25 & alcgm<45, 6,
-                                                               ifelse(alcgm>=45, 7, NA))))))),
-          ocuse=ifelse(ocuse_ever==0,1,
-                       ifelse(ocuse_ever==1 & is.na(ocuse_current), 2,
-                              ifelse(ocuse_ever==1 & ocuse_current==0, 3,
-                                     ifelse(ocuse_current==1, 4, NA)))),
-          ocuse_ever=ifelse(ocuse_ever==0, 0, ifelse(ocuse_ever==1, 1, NA)),
-          ocuse_current=ifelse(ocuse_current==0, 0, ifelse(ocuse_current==1, 1, NA)),
-          ocuse_dur=ifelse(ocusedur_outlier==1 | is.na(ocuse_dur) | ocuse_dur>1000, NA, ocuse_dur),
-          
-          meno_age_cat5_icare=ifelse(is.na(meno_age), NA, ifelse(meno_age>=50 & meno_age<55, 1, ifelse(meno_age<40, 2, ifelse(meno_age>=40 & meno_age<45, 3, ifelse(meno_age>=45 & meno_age<50, 4, 5))))),
-          
-          #BC variables
-          bca_case=ifelse(case==0, 0, 1),
-          bca_invasive=ifelse(!is.na(bca_case) & bca_case==1 & invasive_primary1==1, 1, 
-                              ifelse(!is.na(bca_case) & bca_case==1 & invasive_primary1==2, 0, NA)),
-          #case variables and time variables
-          #if censor_date equal to record year then change to be record year + 1
-          timeissue=ifelse(lastfup<record_year, 1, 0),
-          censor_year=ifelse(timeissue==1, (record_year+1), ifelse(lastfup==record_year, lastfup+1, lastfup)),
-          censor_date=ymd(censor_year, truncated=2L),
-          timediff_control=suppressWarnings(as.numeric(censor_date-record_date)),
-          timediff_control_yr=suppressWarnings(as.numeric(timediff_control/365)),
-          timediff_case=ifelse(!is.na(record_date), as.numeric(primary1dx_date-record_date), as.numeric(primary1dx_date-(birth_date+age*365.25))),
-          timediff_case_yr=suppressWarnings(as.numeric(timediff_case/365)),
-          case_5y=ifelse(case==1 & timediff_case_yr<=5 & !is.na(timediff_case_yr), 1, 0),
-          case_10y=ifelse(case==1 & timediff_case_yr<=10 & !is.na(timediff_case_yr), 1, 0),
-          case_5yinv=ifelse(case_5y==1 & bca_invasive==1 & !is.na(case_5y) & !is.na(bca_invasive), 1, 0),
-          case_10yinv=ifelse(case_10y==1 & bca_invasive==1 & !is.na(case_5y) & !is.na(bca_invasive),1,0),
-          dxtofup= lastfup_date-primary1dx_date,
-          dxtofup= as.integer(dxtofup),
-          dxtofup_yr=dxtofup/365.25,
-          dxage=primary1dx_date-birth_date,
-          dxage= as.integer(dxage),
-          dxage_yr=dxage/365.25,
-          caseage_flag=ifelse(dxage_yr<20| dxage_yr>90, 1, 0),
-          casedate_flag=ifelse(dxtofup_yr<0, 1, 0))
+    waist=ifelse(waist_outlier==1, NA, waist),
+    hip=ifelse(hip_outlier==1, NA, hip),
+    age=ifelse(age_outlier ==1,NA, age),
+    weight=ifelse(weight_outlier ==1, NA, weight),
+    height=ifelse(height_outlier ==1, NA, height),
+    agemenarche=ifelse(agemenarche_outlier ==1, NA, agemenarche),
+    bmi_earlyadult=ifelse(bmiearly_outlier ==1, NA, bmi_earlyadult),  
+    bmi=ifelse(bmi_outlier ==1, NA, bmi),
+    smoke_cigsperday=ifelse(smokingamt_outlier==1, NA, smoking_amt),
+    agemenarche=ifelse(agemenarche_outlier==1, NA, agemenarche),
+    parity=ifelse(parity_outlier==1, NA, parity),
+    age_preg1=ifelse(agepreg1_outlier==1, NA, age_preg1),
+    smoke_dur=ifelse(smokingdur_outlier==1, NA, smoking_dur),
+    smoking_amt=ifelse(smokingamt_outlier==1, NA, smoking_amt),
+    alc_dur=ifelse(alcoholdur_outlier==1, NA, alcohol_dur),
+    alc_amt=ifelse(alcoholamt_outlier==1, NA, alcohol_amt),
+    size_primary1=ifelse(sizeprimary1_outlier==1, NA, size_primary1),
+    ki67_primary1=ifelse(ki67primary1_outlier==1, NA, ki67_primary1),
+    #Create new variables for analysis and descriptive stats
+    
+    agemenarche_cat3=ifelse(agemenarche>0 & agemenarche<12, 1, 
+                            ifelse(agemenarche >=12 & agemenarche<14, 2, 
+                                   ifelse(agemenarche >=14, 3, NA))), 
+    agemenarche_cat7=ifelse(agemenarche>0 & agemenarche<10.5, 1, 
+                            ifelse(agemenarche>=10.5 & agemenarche<11.5, 2, 
+                                   ifelse(agemenarche>=11.5 & agemenarche<12.5, 3, 
+                                          ifelse(agemenarche>=12.5& agemenarche<13.5, 4, 
+                                                 ifelse(agemenarche>=13.5&agemenarche<14.5, 5, 
+                                                        ifelse(agemenarche>=14.5&agemenarche<15.5, 6, 
+                                                               ifelse(agemenarche>=15.5, 7, NA))))))),
+    agemenarche_cat2=ifelse(agemenarche>0 & agemenarche<14, 1, 
+                            ifelse(agemenarche>=14, 2, NA)),
+    age_ge50=ifelse(age<50 & !is.na(age), 0, 
+                    ifelse(age>=50, 1, NA)),
+    age_cat1=ifelse(age>=45 & age<50, 1, 
+                    ifelse(age>=50 & age<60,2,NA)),
+    age_cat2=ifelse(age>=45 & age<50, 1, 
+                    ifelse(age>=50&age<55, 2, 
+                           ifelse(age>=55&age<60, 3, 
+                                  ifelse(age>=60 & age<65, 4, 
+                                         ifelse(age>=65 & age<75, 5, NA))))),
+    height_in=height/2.54,
+    height_cat3=ifelse(height>0 & height <160, 1,
+                       ifelse(height >=160 & height<170, 2, 
+                              ifelse(height>=170, 3, NA))),
+    bmi_cat3=ifelse(bmi>0 & bmi<25, 1,
+                    ifelse(bmi>=25 & bmi<30, 2, 
+                           ifelse(bmi>=30, 3, NA))),
+    bmi_cat4=ifelse(bmi>0 & bmi<18.5, 1, 
+                    ifelse(bmi>=18.5&bmi<25, 2, 
+                           ifelse(bmi>=25&bmi<30, 3, 
+                                  ifelse(bmi>=30, 4, NA)))),
+    bmi_cat5=ifelse(bmi>0 & bmi<21, 1, 
+                    ifelse(bmi>=21&bmi<23, 2, 
+                           ifelse(bmi>=23&bmi<35, 3, 
+                                  ifelse(bmi>=25 & bmi<27, 4, 
+                                         ifelse(bmi>=27, 5, NA))))),
+    bmi_cat2=ifelse(bmi>0 & bmi<30, 1, 
+                    ifelse(bmi>=30,2, NA )),
+    
+    #code peri as premeno
+    meno_status2=ifelse(meno_status==2 | meno_status==3, 1, ifelse(meno_status==1, 2, NA)),
+    
+    agemeno_combo=ifelse(meno_status2==1 & age_cat1==1, 1, 
+                         ifelse(meno_status2==1 & age_cat1==2, 2, 
+                                ifelse(meno_status2==2 & age_cat2==1, 3, 
+                                       ifelse(meno_status2==2 & age_cat2==2, 4, 
+                                              ifelse(meno_status2==2 &age_cat2==3, 5, 
+                                                     ifelse(meno_status2==2 &age_cat2==4, 6,NA)))))),
+    ageflb=ifelse(age_preg1>=agemenarche & age_preg1<=age & !is.na(age) & !is.na(age_preg1) , age_preg1, NA),
+    
+    #recode parous if parous and ageflb don't match - change parous to 1 if there is a valid age at first birth that fits in range above
+    parous=ifelse(parous==1| (!is.na(ageflb) |(!is.na(parity)& parity>0)), 1, 0),
+    #recode parous if parous and parity do not match
+    parity_new=ifelse(parous==0, 0,
+                      ifelse(parous==1 & parity>0 & !is.na(parity), parity, 
+                             ifelse(parous==1 & (parity==0 | is.na(parity)), 1, NA))),
+    parity_cat=ifelse(parity_new<3, parity_new, 3),
+    ageflb_cat5=ifelse(parous==0, 1, 
+                       ifelse(ageflb>0 & ageflb<20, 2, 
+                              ifelse(ageflb>=20 & ageflb<25, 3, 
+                                     ifelse(ageflb>=25 & ageflb<30, 4, 
+                                            ifelse(ageflb>=30, 5, NA))))),
+    ageflb_cat4=ifelse(parous==0, 1, 
+                       ifelse(ageflb>0 &ageflb<25, 2, 
+                              ifelse(ageflb>=25&ageflb<30, 3, 
+                                     ifelse(ageflb>=30, 4, NA)))),
+    ageflb_parous=ifelse(ageflb>0 & ageflb<20, 1, 
+                         ifelse(ageflb>=20 & ageflb<25, 2, 
+                                ifelse(ageflb>=25&ageflb<30, 3, 
+                                       ifelse(ageflb>=30, 4, NA)))),
+    
+    famhx_first=ifelse(fhx_fdr_brca==0, 0, 
+                       ifelse(fhx_fdr_brca==1, 1, NA)),
+    ever_biopsy=Biopsies_yesno,
+    biopsy_num=ifelse(!is.na(Biopsies_number), Biopsies_number, 
+                      ifelse(is.na(Biopsies_number) & Biopsies_yesno==1, 1, 
+                             ifelse(is.na(Biopsies_number) & Biopsies_yesno==0, 0, NA))),
+    biopsy_num=suppressWarnings(as.numeric(biopsy_num)),
+    atyp_hyp=ifelse(biopsy_num>0 & (BBD_type1==3 | BBD_type2==3 | BBD_type3==3 | BBD_type4==3), 1, 
+                    ifelse(biopsy_num>0 & (BBD_type1==1|BBD_type1==2|BBD_type2==1|BBD_type2==2|BBD_type3==1|BBD_type3==2), 0, NA)),
+    biop_noatyp=ifelse(biopsy_num>0 & atyp_hyp==0, 1, 
+                       ifelse(biopsy_num>0 & atyp_hyp==1, 0, NA)),
+    
+    biopsy_cat3=ifelse(Biopsies_yesno==0 | BBD_type1==1, 1, 
+                       ifelse(Biopsies_yesno==1 & BBD_type1 !=2, 2, 
+                              ifelse(BBD_type1==2, 3, NA))),
+    biopsy_age50=ifelse(biopsy_num==0 & age_ge50==0, 1, 
+                        ifelse(biopsy_num==1&age_ge50==0, 2, 
+                               ifelse(biopsy_num>1 & age_ge50==0, 3, 
+                                      ifelse(biopsy_num==0 & age_ge50==1, 4, 
+                                             ifelse(biopsy_num==1 & age_ge50==1, 5, 
+                                                    ifelse(biopsy_num>1&age_ge50==1, 6, NA)))))),
+    
+    postmeno_dur_hold=ifelse (meno_status2==2, age-meno_age, 
+                              ifelse(meno_status2==1, 0, NA)),
+    postmeno_dur=ifelse(postmeno_dur_hold<0, 0, postmeno_dur_hold),
+    hrt_use=ifelse(hrtuse==0|meno_status2==1, 1, 
+                   ifelse(hrtuse==1 & meno_status2==2, 2, 
+                          ifelse(hrtuse==2 & meno_status2==2, 3, 
+                                 ifelse(hrtuse==3 & meno_status2==2, 4, NA)))),
+    hrt_use_icare=ifelse(hrt_use==1, 0, 
+                         ifelse(hrt_use==2, 1,
+                                ifelse(hrt_use==3, 2, 
+                                       NA))),
+    pmh_type_cur=ifelse(hrtuse==0|hrtuse==2, 1, 
+                        ifelse(hrtuse_eonly==1, 3, 
+                               ifelse(hrtuse_ep==1, 4,
+                                      ifelse (hrtuse==1, 2, NA)))),
+    pmh_type_icare=ifelse(pmh_type_cur==3, 0, ifelse(pmh_type_cur==4, 1, NA)), 
+    pmh_type_any=ifelse(hrtuse==0, 1, 
+                        ifelse((hrtuse==2|hrtuse==3) & hrtuse_eonly!=2 & hrtuse_eonly!=3 & hrtuse_ep!=2 & hrtuse_ep!=3, 2, 
+                               ifelse((hrtuse==2 | hrtuse==3) & (hrtuse_eonly==2 | hrtuse_eonly==3), 3, 
+                                      ifelse((hrtuse==2 | hrtuse==3) & (hrtuse_ep==2|hrtuse_ep==3), 4, 
+                                             ifelse(pmh_type_cur==2, 5, 
+                                                    ifelse(pmh_type_cur==3, 6, 
+                                                           ifelse(pmh_type_cur==4, 7, NA))))))),
+    #reclassify alcohol status if "unkn. current or former and has alcohol_amt list for current use, change to current
+    alcohol_status=ifelse(alcohol_amt>0 & !is.na(alcohol_amt) & alcohol_status==3, 1, alcohol_status),
+    #Only assign an amount if they listed current drinker or unknown current/never, otherwise 0 if not current drinker, NA if unk. 
+    alcgm=ifelse(is.na(alcohol_amt)| alcohol_status==2 | alcohol_status==4, 0,
+                 ifelse((alcohol_status==1|alcohol_status==3) & !is.na(alcohol_amt), alcohol_amt, NA)),
+    alcgm_cat4=ifelse(alcohol_status==2|alcohol_status==4, 1, 
+                      ifelse(alcgm>0 & alcgm<11, 2,
+                             ifelse(alcgm>=11 & alcgm<22, 3,
+                                    ifelse(alcgm>=22, 4, NA)))),
+    alcgm_cat7=ifelse(alcgm_cat4==1, 1, 
+                      ifelse(alcgm>0& alcgm<5, 2,
+                             ifelse(alcgm>=5&alcgm<15,3,
+                                    ifelse(alcgm>=15 & alcgm<25, 4,
+                                           ifelse(alcgm>=25&alcgm<35, 5,
+                                                  ifelse(alcgm>=25 & alcgm<45, 6,
+                                                         ifelse(alcgm>=45, 7, NA))))))),
+    ocuse=ifelse(ocuse_ever==0,1,
+                 ifelse(ocuse_ever==1 & is.na(ocuse_current), 2,
+                        ifelse(ocuse_ever==1 & ocuse_current==0, 3,
+                               ifelse(ocuse_current==1, 4, NA)))),
+    ocuse_ever=ifelse(ocuse_ever==0, 0, ifelse(ocuse_ever==1, 1, NA)),
+    ocuse_current=ifelse(ocuse_current==0, 0, ifelse(ocuse_current==1, 1, NA)),
+    ocuse_dur=ifelse(ocusedur_outlier==1 | is.na(ocuse_dur) | ocuse_dur>1000, NA, ocuse_dur),
+    
+    meno_age_cat5_icare=ifelse(is.na(meno_age), NA, ifelse(meno_age>=50 & meno_age<55, 1, ifelse(meno_age<40, 2, ifelse(meno_age>=40 & meno_age<45, 3, ifelse(meno_age>=45 & meno_age<50, 4, 5))))),
+    
+    #BC variables
+    bca_case=ifelse(case==0, 0, 1),
+    bca_invasive=ifelse(!is.na(bca_case) & bca_case==0, 0,
+                        ifelse(!is.na(bca_case) & bca_case==1 & invasive_primary1==1, 1, 
+                               ifelse(!is.na(bca_case) & bca_case==1 & invasive_primary1==2, 0, 
+                                      ifelse(!is.na(bca_case) & bca_case==1 & is.na(invasive_primary1), NA, 0)))),
+    #case variables and time variables
+    #if censor_date equal to record year then change to be record year + 1
+    timeissue=ifelse(lastfup<record_year, 1, 0),
+    censor_year=ifelse(timeissue==1, (record_year+1), ifelse(lastfup==record_year, lastfup+1, lastfup)),
+    censor_date=ymd(censor_year, truncated=2L),
+    timediff_control=suppressWarnings(as.numeric(censor_date-record_date)),
+    timediff_control_yr=suppressWarnings(as.numeric(timediff_control/365)),
+    timediff_case=ifelse(!is.na(record_date), as.numeric(primary1dx_date-record_date), as.numeric(primary1dx_date-(birth_date+age*365.25))),
+    timediff_case_yr=suppressWarnings(as.numeric(timediff_case/365)),
+    case_5y=ifelse(case==1 & timediff_case_yr<=5 & !is.na(timediff_case_yr), 1, 0),
+    case_10y=ifelse(case==1 & timediff_case_yr<=10 & !is.na(timediff_case_yr), 1, 0),
+    case_5yinv=ifelse(case_5y==1 & bca_invasive==1 & !is.na(case_5y) & !is.na(bca_invasive), 1, 0),
+    case_10yinv=ifelse(case_10y==1 & bca_invasive==1 & !is.na(case_5y) & !is.na(bca_invasive),1,0),
+    dxtofup= lastfup_date-primary1dx_date,
+    dxtofup= as.integer(dxtofup),
+    dxtofup_yr=dxtofup/365.25,
+    dxage=primary1dx_date-birth_date,
+    dxage= as.integer(dxage),
+    dxage_yr=dxage/365.25,
+    #check if this works for whi
+    dxage_yr=ifelse(is.na(dxage_yr), age+timediff_case_yr, dxage_yr),
+    caseage_flag=ifelse(dxage_yr<20| dxage_yr>90, 1, 0),
+    casedate_flag=ifelse(dxtofup_yr<0, 1, 0))
 
 #Remove males from dataset
 data4<-data3[which (data3$sex=="Female" |data3$sex==0),]

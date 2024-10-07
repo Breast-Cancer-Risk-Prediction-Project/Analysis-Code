@@ -6,7 +6,7 @@ install.packages("table1")
 library(table1)
 #Read in data - this was created in Step1.DataCleaning.R
 #Specify filepath
-
+head(valdata)
 valdata<-read.csv("FILEPATH/bcrpp_valdata.R")
 
 #Set up data for table
@@ -55,7 +55,7 @@ label(valdata$smoking_amt)<-"Smoking, cigs/day"
 label(valdata$famhx_first)<-"First-degree family history BC"
 label(valdata$ever_biopsy)<-"Ever had a biopsy"
 label(valdata$biopsy_num)<-"Number of biopsies"
-label(valdata$bbd_history)<-"History of BBD"
+label(valdata$BBD_history)<-"History of BBD"
 label(valdata$atyp_hyp)<-"Ever had biopsy with atypical hyperplasia"
 
 #Diagnosis variables
@@ -68,10 +68,12 @@ label(valdata$case_10y)<-"BC case within 10y"
 label(valdata$case_10yinv)<-"Invasive BC case within 10y"
 
 table1<-table1(~ age+birth_year+race+height+bmi+bmi_cat4+agemenarche+parous+parity_new+ageflb+ocuse+meno_status2+hrt_use+pmh_type_any+
-         alcohol_status+alcgm+smoking_status+smoking_amt+famhx_first+ever_biopsy+biopsy_num+bbd_history+atyp_hyp+
+         alcohol_status+alcgm+smoking_status+smoking_amt+famhx_first+ever_biopsy+biopsy_num+BBD_history+atyp_hyp+
          case+bca_invasive+dxage_yr+case_5y+case_5yinv+case_10y+case_10yinv, data=valdata)
 table1
 #PLEASE INSERT FILEPATH AND THE APPROPRIATE ACRONYM 
 write.table(table1, "FILEPATH/Table1_ACRONYM.csv", col.names=T, row.names=F, append=T, sep=',')
+
+#write.table(table1, "C:/Users/krist/Dropbox/BCRP Project/BWHS_Table1.csv", col.names=T, row.names=F, append=T, sep=',')
 
 #Please send resulting table to kristen_brantley@dfci.harvard.edu
