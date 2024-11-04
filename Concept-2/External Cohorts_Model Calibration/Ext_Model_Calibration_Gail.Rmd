@@ -5,15 +5,21 @@
 # running "Step1.DataCleaning.R" and will perform model calibration
 # using iCARE-Validate for the Gail (BCRAT) model.
 
-# Run Notes: Please insert cohort acronym in title and the date of run.
+# PLEASE INSERT COHORT ACRONYM IN [] BELOW for the FILENAME
+# AND INSERT RUN DATE
+
+# Run Notes: You will need to install these packages if you don't have them (available online):
+# #BCRAT packages - install.packages("BCRA") - please run outside of Rmarkdown:
+#  https://dceg.cancer.gov/tools/risk-assessment/bcra
+# #iCARE packages - install.packages("BiocManager")
+  #                  BiocManager::install("iCARE")
+# https://www.bioconductor.org/packages/release/bioc/html/iCARE.html
 
 # After specifying your filepaths, (ctrl+f: "filepath" for where to insert), you can simply:
 # hit "Knit -> Knit to Word" and this will run the full document and produce output.
 
 # Please send the finalized document to kristen_brantley@dfci.harvard.edu
 # If any issues arise when trying to run this document, please reach out to Kristen Brantley. 
-# PLEASE INSERT COHORT ACRONYM IN [] BELOW for the FILENAME
-# AND INSERT RUN DATE
 ```
 
 
@@ -24,10 +30,6 @@ date: "MM-DD-YYYY"
 ---
 
 ```{r setup, include=FALSE}
-r <- getOption("repos")
-r["CRAN"] <- "http://cran.cnr.berkeley.edu/"
-options(repos = r)
-
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -53,12 +55,6 @@ suppressWarnings(library("lubridate"))
 suppressWarnings(library("gtools"))
 suppressWarnings(library("ggplot2"))
 
-#BCRAT packages - Load from R package available online
-local({r <- getOption("repos")
-       r["CRAN"] <- "https://cran.r-project.org" 
-       options(repos=r)
-})
-install.packages("BCRA")
 suppressWarnings(library(BCRA))
 data("BrCa_lambda1")
 data("BrCa_lambda2")
@@ -228,8 +224,6 @@ ggplot(data_gail, aes(x=absrisk_gail))+ geom_histogram(binwidth=0.5, fill="light
 
 
 ```{r echo=FALSE, include=FALSE}
-install.packages("BiocManager")
-BiocManager::install("iCARE")
 library(iCARE)
 ```
 
