@@ -1,9 +1,14 @@
 ```{r include=FALSE}
-# This file will read in your clean validation dataset, created after
-# running "Step1.DataCleaning.R" and will perform model calibration
-# using iCARE-Validate for the iCARE model.
-
+#INSTRUCTIONS:
+#PLEASE INSERT COHORT ACRONYM IN [] BELOW for the FILENAME
+#AND INSERT RUN DATE
 # Run Notes: Please insert cohort acronym in title and the date of run.
+# Run Notes: You will need to install the iCARE packages (outside of R markdown) if you don't have it (available online):
+# #iCARE packages - install.packages("BiocManager")
+#                  BiocManager::install("iCARE")
+# https://www.bioconductor.org/packages/release/bioc/html/iCARE.html
+# Before running iCARE you will also need to load the iCARE dependencies to your R environment.
+# These are contained in the ".zip" file- labeled "icare-lit-r-dependencies" in GitHub
 
 # After specifying your filepaths, (ctrl+f: "filepath" for where to insert), you can simply:
 # hit "Knit -> Knit to Word" and this will run the full document and produce output.
@@ -11,11 +16,6 @@
 # Please send the finalized document to kristen_brantley@dfci.harvard.edu
 # If any issues arise when trying to run this document, please reach out to Kristen Brantley. 
 
-# Before running iCARE you will need to load the iCARE dependencies to your R environment.
-# These are contained in the ".zip" file- labeled "icare-lit-r-dependencies" in GitHub
-
-#PLEASE INSERT COHORT ACRONYM IN [] BELOW for the FILENAME
-#AND INSERT RUN DATE
 ```
 
 ---
@@ -27,10 +27,6 @@ date: "MM-DD-YYYY"
 #Source the data cleaning file to use correct dataset & source functions.
 
 ```{r setup, include=FALSE}
-r <- getOption("repos")
-r["CRAN"] <- "http://cran.cnr.berkeley.edu/"
-options(repos = r)
-
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -53,11 +49,6 @@ suppressWarnings(library("lubridate"))
 suppressWarnings(library("gtools"))
 suppressWarnings(library("ggplot2"))
 
-#BCRAT packages - Load from R package available online
-local({r <- getOption("repos")
-       r["CRAN"] <- "https://cran.r-project.org" 
-       options(repos=r)
-})
 ```
 
 # Step 1. Prepare dataset for iCARE model 
@@ -142,8 +133,6 @@ data_icare_ge50_val$sampling.weights<-1
 
 ## 2a. installation
 ```{r echo=FALSE, include=FALSE}
-install.packages("BiocManager")
-BiocManager::install("iCARE")
 library(iCARE)
 ```
 
