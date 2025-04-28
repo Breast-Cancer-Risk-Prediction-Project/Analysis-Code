@@ -1,0 +1,710 @@
+---
+title: "Ext_Model_Calibration_BWHS"
+output: html_document
+date: "2025-04-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(knitr.duplicate.label="allow")
+```
+
+```{r chunk1, echo=FALSE, include=FALSE}
+#Here you will load all required packages and functions
+
+#functions
+source("FILEPATH/Functions_ExistingModelValidation.R", local=knitr::knit_global())
+
+#incidence rates and mortality rates for the calculator
+source("FILEPATH/BWHS_incmortrates.R", local=knitr::knit_global())
+
+if(!require(tidyverse)){
+  install.packages("tidyverse")
+  suppress.warnings(library("dplyr"))
+}
+if(!require(tidyverse)){
+  install.packages("tidyverse")
+  suppress.warnings(library("tidyverse"))
+}
+if(!require(lubridate)){
+  install.packages("lubridate")
+  suppress.warnings(library("lubridate"))
+}
+if(!require(ggplot2)){
+  install.packages("ggplot2")
+  suppress.warnings(library("ggplot2"))
+}
+if(!require(gtools)){
+  install.packages("gtools")
+  suppress.warnings(library("gtools"))
+}
+```
+
+```{r include=FALSE}
+#Please make sure you are working from valdata and valdata2 datasets that were created from Step2.Create2datasets_BWHS.Rmd
+
+#If number of relatives is NA set to 0
+valdata1<-valdata %>%
+  mutate(brcancersis=ifelse(is.na(brcancersis),0, brcancersis),
+         brcancerdau=ifelse (is.na(brcancerdau), 0, brcancerdau),
+         brcancerdad=ifelse(is.na(brcancerdad),0, brcancerdad),
+         brcancermom=ifelse(is.na(brcancerdad),0, brcancerdad),
+         fhisfstbcnr=ifelse(is.na(fhisfstbcnr), 0, fhisfstbcnr),
+         fam1grbc50=ifelse(is.na(fam1grbc50),0, fam1grbc50),
+         fhx_fdr_brca=ifelse(is.na(fhx_fdr_brca),0, fhx_fdr_brca))
+
+#Need to create max # relatives if some, but not all, info is available
+valdata1<-valdata1 %>%
+  rowwise %>%
+  mutate(familyhistorynum=as.numeric(sum(brcancersis,brcancerdau,brcancermom,brcancerdad)),
+        familyhistorynum2=as.numeric(sum(fhisfstbcnr,brcancerdad)),
+        familyhistorynum3=as.numeric(sum(fam1grbc50)),
+        familyhistorynum4=as.numeric(sum(as.numeric(fhx_fdr_brca))),
+        maxfamhx=pmax(familyhistorynum,familyhistorynum2, familyhistorynum3, familyhistorynum4))
+
+```
+### Check max famhx variable
+```{r}
+table(valdata1$maxfamhx)
+```
+
+```{r include=FALSE}
+#This section sets up the data in the format for BWHS risk calculator
+
+valdata1 <- valdata1 %>%
+  mutate (BRCAFAM_NUM=ifelse(fhx_fdr_brca==0, 0,
+                               ifelse(maxfamhx==1, 1,
+                                ifelse(maxfamhx>1, 2, 3))),
+            BRCAFAMLT50=ifelse(is.na(fam1grbc50), 2, fam1grbc50),
+            
+            PROSTFAM=2, #all unknown
+            BILAT= 2, #"BILAT", "Both ovaries removed (bilateral oophorectomy)", choices = list("No" = 1, "Yes" = 0, "Unknown" = 2), selected = character(0)),
+            age_end5y=age+5,
+            AGEGE50 =ifelse(age >= 50, 1, 0))
+```
+
+```{r include=FALSE}
+#This section continues set up the data in the format for BWHS risk calculator
+
+valdata1 <- valdata1 %>%
+  mutate(   HT_TOT_IN=height_in,
+            
+            LACT_NEVER_IND=ifelse(parous==1 & !is.na(parous) & !is.na(breastfeed) & breastfeed==1 , 0, 1),
+            
+            #create indicator variable for premenopausal status
+            # groups unknown with postmenopausal
+            MENOSTAT_F_PRE_IND= ifelse(as.numeric(meno_status2)==1 & !is.na(meno_status2), 1,0),
+            
+            # create indicator variable for BMI >= 30
+            BMI_D_GE30_IND =ifelse(bmi >= 30 & !is.na(bmi), 1, 0),
+            
+            # create indicator variable for BMI at age 18 <= 25
+            BMI18_LT25_IND = ifelse(bmi_earlyadult <= 25 & !is.na(bmi_earlyadult), 1, 0),
+            
+            #Assume all bilat oophorectomy are "no" bc we don't have this data- in calculator, unknown are assigned "no"
+            BILAT_NO_IND=1, 
+            # create indicator variable for breast biopsy
+            # groups unknown with no
+            BIOPVAR_EVER_IND=ifelse(biopsy_num >= 1 & !is.na(biopsy_num), 1, 0),
+            
+            # create indicator variable for 1 relative diagnosed with breast cancer after age 50
+            BRCAFAM50_1_IND=ifelse(as.numeric(BRCAFAM_NUM) == 1 & as.numeric(BRCAFAMLT50) != 1 & !is.na(BRCAFAM_NUM) & !is.na(BRCAFAMLT50), 1, 0),	
+            # create indicator variable for 2 relatives diagnosed with breast cancer or any before age 50
+            BRCAFAM50_2_IND=ifelse(as.numeric(BRCAFAM_NUM)==2 & !is.na(BRCAFAM_NUM) | as.numeric(BRCAFAMLT50)==1 & !is.na(BRCAFAMLT50), 1, 0),
+        
+            # create indicator variable for age at menarche < 14
+            # groups unknown with < 14
+            MENARC_LT14_IND=ifelse(as.numeric(agemenarche) <14 |is.na(agemenarche), 1, 0),
+            # create age/menarche interaction variable
+            AGEGE50_MENARCGE14=age_ge50*(1 - MENARC_LT14_IND),
+            # create indicator variable for family history of prostate cancer
+            # groups unknown with no
+            PROSTFAM_D_YES_IND=ifelse(as.numeric(PROSTFAM) == 1, 1, 0),
+            # create age/biopsy interaction variable
+            AGEGE50_BIOPVAR_EVER=age_ge50*BIOPVAR_EVER_IND,
+            # create age/family history interaction variables
+            AGEGE50_BRCAFAM50_1 =age_ge50 * BRCAFAM50_1_IND,
+            AGEGE50_BRCAFAM50_2 =age_ge50 * BRCAFAM50_2_IND,
+            # create BMI/menopause interaction variable
+            BMIGE30_MENO_PRE = BMI_D_GE30_IND * MENOSTAT_F_PRE_IND,
+            #1 is nulliparous here- assuming missing are nulliparous
+            #changed 1.24.25
+            NULPAR_PAROUS_IND=ifelse(parous==0 | is.na(parous), 0, 1),
+            #1 is duration 5+y, 0 is none or <5y or unknown
+            OCDUR_YRS_GE5_IND=ifelse(ocuse_dur/12>=5 & !is.na(ocuse_dur), 1, 0),
+            
+            AGEGE50_BRCAFAM50_1 = age_ge50* BRCAFAM50_1_IND,
+            AGEGE50_BRCAFAM50_2 = age_ge50* BRCAFAM50_2_IND)
+
+#Assign risk 
+
+# 1 - the attributable risk 
+BRCAN_1_AR <- 0.3576669608
+
+# parameter estimates to calculate linear predictors
+AGEGE50_BIOPVAR_EVER_BETA <- -0.241570698
+AGEGE50_BRCAFAM50_1_BETA <- 0.0813301514
+AGEGE50_BRCAFAM50_2_BETA <- -0.556421235
+AGEGE50_MENARCGE14_BETA <- 0.2388811256
+BILAT_NO_BETA <- 0.214297404
+BIOPVAR_EVER_BETA <- 0.4629495248
+BMI18_LT25_BETA <- 0.1508789583
+BMIGE30_MENO_PRE_BETA <- -0.165478793
+BMI_D_GE30_BETA <- 0.1284392293
+BRCAFAM50_1_BETA <- 0.3416303435
+BRCAFAM50_2_BETA <- 0.959041669
+LACT_NEVER_BETA <- 0.1682571258
+MENARC_LT14_BETA <- 0.3177481922
+MENOSTAT_F_PRE_BETA <- 0.2383607104
+NULPAR_PAROUS_BETA <- 0.0169183249
+OCDUR_YRS_GE5_BETA <- 0.1398767985
+PROSTFAM_D_YES_BETA <- 0.1363762353
+
+# create linear predictor for each variable
+valdata1<- valdata1 %>%
+  mutate(LP_BILAT = BILAT_NO_IND * BILAT_NO_BETA,
+         LP_BIOPVAR =BIOPVAR_EVER_IND*BIOPVAR_EVER_BETA + AGEGE50_BIOPVAR_EVER*AGEGE50_BIOPVAR_EVER_BETA,
+         LP_BMI18 = BMI18_LT25_IND* BMI18_LT25_BETA,
+         LP_BMI_BY_MENO = BMI_D_GE30_IND*BMI_D_GE30_BETA + MENOSTAT_F_PRE_IND*MENOSTAT_F_PRE_BETA + BMIGE30_MENO_PRE* BMIGE30_MENO_PRE_BETA,
+         LP_BRCAFAM50 = BRCAFAM50_1_IND*BRCAFAM50_1_BETA + AGEGE50_BRCAFAM50_1*AGEGE50_BRCAFAM50_1_BETA + BRCAFAM50_2_IND * BRCAFAM50_2_BETA + AGEGE50_BRCAFAM50_2 * AGEGE50_BRCAFAM50_2_BETA,
+         LP_LACTEVER_BIN = (as.numeric(LACT_NEVER_IND) * LACT_NEVER_BETA),
+         LP_MENARC = MENARC_LT14_IND* MENARC_LT14_BETA + AGEGE50_MENARCGE14 * AGEGE50_MENARCGE14_BETA,
+         LP_NULPAR = as.numeric(NULPAR_PAROUS_IND) * NULPAR_PAROUS_BETA,
+         LP_OCDUR_YRS = as.numeric(OCDUR_YRS_GE5_IND) * OCDUR_YRS_GE5_BETA,
+         LP_PROSTFAM_D = PROSTFAM_D_YES_IND* PROSTFAM_D_YES_BETA,
+         LP_bwhs =LP_BILAT + LP_BIOPVAR + LP_BMI18 + LP_BMI_BY_MENO + LP_BRCAFAM50 + LP_LACTEVER_BIN + LP_MENARC + LP_NULPAR + LP_OCDUR_YRS + LP_PROSTFAM_D)
+
+valdata1<-valdata1 %>%
+    mutate(RRStar = exp(LP_bwhs))
+```
+
+### Check that no indiv. is missing RRStar
+
+```{r }
+#check that =0. If >0 there has been an error in the coding where the lp has not been set. Please check the names of all your variables to make sure they align
+sum(is.na(valdata1$RRStar))
+```
+
+```{r include=FALSE}
+#This section assigns risks for 1-10 y
+
+#risks are stored as AbsRsk5 : 5y risk and AbsRsk10: 10y risk
+
+valdata1 <- valdata1 %>%
+  mutate(age=as.integer(age),
+         t1=age,
+         t2=t1+1,
+         t3=t1+2,
+         t4=t1+3,
+         t5=t1+4,
+         t6=t1+5,
+         t7=t1+6,
+         t8=t1+7,
+         t9=t1+8,
+         t10=t1+9, 
+         
+         H1 = BC_AA_inc[BC_AA_inc$age==t1,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t1,]$h2,
+         H2 = BC_AA_inc[BC_AA_inc$age==t2,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t2,]$h2,
+         H3 = BC_AA_inc[BC_AA_inc$age==t3,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t3,]$h2,
+         H4 = BC_AA_inc[BC_AA_inc$age==t4,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t4,]$h2,
+         H5 = BC_AA_inc[BC_AA_inc$age==t5,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t5,]$h2,
+         
+         H6 = BC_AA_inc[BC_AA_inc$age==t6,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t6,]$h2,
+         H7 = BC_AA_inc[BC_AA_inc$age==t7,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t7,]$h2,
+         H8 = BC_AA_inc[BC_AA_inc$age==t8,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t8,]$h2,
+         H9 = BC_AA_inc[BC_AA_inc$age==t9,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t9,]$h2,
+         H10 = BC_AA_inc[BC_AA_inc$age==t10,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t10,]$h2,
+         
+         Cum_H1 = 0,
+         Cum_H2 = H1,
+         Cum_H3 = H1 + H2,
+         Cum_H4 = H1 + H2 + H3,
+         Cum_H5 = H1 + H2 + H3 + H4,
+         
+         Cum_H6 = H1 + H2 + H3 + H4 + H5,
+         Cum_H7 = H1 + H2 + H3 + H4 + H5 + H6,
+         Cum_H8 = H1 + H2 + H3 + H4 + H5 + H6 + H7,
+         Cum_H9 = H1 + H2 + H3 + H4 + H5 + H6 + H7 + H8,
+         Cum_H10 = H1 + H2 + H3 + H4 + H5 + H6 + H7 + H8 + H9,
+         
+         PI_1 = (( (BC_AA_inc[BC_AA_inc$age==t1,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H1 ) * exp(-Cum_H1)) * (1-exp(-H1)),
+         PI_2 = (( (BC_AA_inc[BC_AA_inc$age==t2,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H2 ) * exp(-Cum_H2)) * (1-exp(-H2)),
+         PI_3 = (( (BC_AA_inc[BC_AA_inc$age==t3,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H3 ) * exp(-Cum_H3)) * (1-exp(-H3)),
+         PI_4 = (( (BC_AA_inc[BC_AA_inc$age==t4,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H4 ) * exp(-Cum_H4)) * (1-exp(-H4)),
+         PI_5 = (( (BC_AA_inc[BC_AA_inc$age==t5,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H5 ) * exp(-Cum_H5)) * (1-exp(-H5)),
+         
+         PI_6 = (( (BC_AA_inc[BC_AA_inc$age==t6,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H6 ) * exp(-Cum_H6)) * (1-exp(-H6)),
+         PI_7 = (( (BC_AA_inc[BC_AA_inc$age==t7,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H7 ) * exp(-Cum_H7)) * (1-exp(-H7)),
+         PI_8 = (( (BC_AA_inc[BC_AA_inc$age==t8,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H8 ) * exp(-Cum_H8)) * (1-exp(-H8)),
+         PI_9 = (( (BC_AA_inc[BC_AA_inc$age==t9,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H9 ) * exp(-Cum_H9)) * (1-exp(-H9)),
+         PI_10 = (( (BC_AA_inc[BC_AA_inc$age==t10,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H10 ) * exp(-Cum_H10)) * (1-exp(-H10)),
+         
+         
+         AbsRsk5 = round(100*(PI_1 + PI_2 + PI_3 + PI_4 + PI_5), 1),
+         AbsRsk10 = round(100*(PI_1 + PI_2 + PI_3 + PI_4 + PI_5 + PI_6 + PI_7 + PI_8 + PI_9 + PI_10), 1),
+         AvAbsRsk5 = list(round(average[average$age==t1,]$predrisk5, 1)),
+         AvAbsRsk10 = list(round(average[average$age==t1,]$predrisk10, 1)),
+         absrisk=AbsRsk5/100
+  )
+
+valdata1<-as.data.frame(valdata1)
+```
+
+## Risk summary, BWHS 1-5y
+
+```{r echo=FALSE}
+summarizerisks<-function(data, var){
+  data %>% group_by(cohort) %>%
+    summarise(n= sum(!is.na({{var}})),
+              na= sum(is.na({{var}})),
+              mean = mean({{var}}, na.rm = TRUE),
+              sd = sd({{var}}, na.rm = TRUE),
+              min=min({{var}}, na.rm=TRUE),
+              q25 = quantile({{var}}, 0.25, na.rm = TRUE),
+              median=median({{var}}, na.rm=TRUE),
+              q75 = quantile({{var}}, 0.75, na.rm = TRUE),
+              max= max({{var}}, na.rm=TRUE))
+}
+
+a<-summarizerisks(valdata1, RRStar)
+b<-summarizerisks(valdata1, absrisk)
+bwhsrisks<-rbind(a,b)
+bwhsrisks
+hist(valdata1$RRStar, col="darkblue")
+hist(valdata1$absrisk, col="darkred")
+```
+```{r}
+#OPTIONAL CODE: 
+#valdata1_risks<-valdata1[,c("cohort","subject_id","RRStar","absrisk","AbsRsk5","AbsRsk10")]
+#Save absolute risks 
+#write.csv(valdata1_risks, "C:/Users/krist/Box/BCRPP Concept 2_ValidatingExistingModels/Data - Opted-in Studies/AllRisks/1to5y/BWHS/WHI.csv")
+```
+
+```{r include=FALSE}
+
+
+########################################################
+# Calibration - use iCARE Validate    #
+########################################################
+
+#timevar needs to be changed to meet requirements, change to infinity if not a case (invasive or in situ).
+
+#If timediff case yr is missing assign as infinite (past 5 y)
+#Reassigned so all that are =5y are considered "within" 5 y (conversation with Julie and Gary 1.24.25)
+valdata1$time.of.onset<-ifelse(valdata1$case_invasive==1 & !is.na(valdata1$time_bltodx1) & valdata1$time_bltodx1<=5, valdata1$time_bltodx1, Inf)
+valdata1$case_5yinv<-ifelse(valdata1$case_invasive==1 & valdata1$time_bltodx1<=5, 1, 0)
+
+table(valdata1$case_5yinv, valdata1$time_bltodx1)
+
+#Add age end
+valdata1<-valdata1%>%
+  mutate(sampling.fraction=1,
+         ageend=pmin(age+5, age+timediff))
+
+#5y invasive first 
+#Rename
+
+valdata1_new<-valdata1[,c("id","age","ageend","case_5yinv","RRStar","absrisk","time.of.onset","sampling.fraction", "LP_bwhs","race", "cohort")] 
+
+#Rename columns so it matches iCARE scheme
+colnames(valdata1_new)<-c("id","study.entry.age","study.exit.age","observed.outcome","relrisk","absrisk", "time.of.onset","sampling.weights","lp", "race","cohort")
+```
+
+## E/O overall 1-5y
+
+```{r echo=FALSE}
+
+eo<-as.data.frame(obsexpected_overall(valdata1_new))
+eo
+```
+## E/O by decile 1-5y
+
+```{r echo=FALSE}
+eo_bycat_invas<-as.data.frame(obsexpected_bycat_abs(valdata1_new))
+print("E/O by cat, invasive")
+eo_bycat_invas
+```
+
+## Calibration plots 1-5y
+
+```{r echo=FALSE}
+absrisk_byabs<-as.data.frame(returnabsrisk_abs(valdata1_new))
+print("Absolute risk by absolute risk decile")
+absrisk_byabs
+
+plotcalibration_abs= function(dataset1){
+  maxx=max(dataset1$predicted.prob.cat)*100+0.2
+  maxy=max(dataset1$upper.limit.absrisk.cat)*100+0.2
+  miny=min(dataset1$lower.limit.absrisk.cat)*100-0.2
+  plot_test<-ggplot(data=dataset1,aes(x=predicted.prob.cat*100,y=observed.prob.cat*100)) +
+    geom_point(color="purple4",size=4) +
+    geom_abline(intercept=0, slope=1,linetype="dotted") + geom_errorbar(aes(ymin=lower.limit.absrisk.cat*100, ymax=upper.limit.absrisk.cat*100), size=0.3) +
+    labs(x='Expected risk (%)', y='Observed risk (%)', title="Absolute risk calibration")+ 
+    scale_x_continuous(limits=c(0,maxx))  + scale_y_continuous(limits=c(miny,maxy)) +
+    theme(axis.text.x=element_text(size=12),
+          axis.text.y=element_text(size=12),
+          axis.title.x = element_text(vjust = 0, size = 14),
+          axis.title.y = element_text(vjust = 2, size = 14), 
+          axis.title=element_text(size=16), legend.position="none") 
+  return(plot_test)
+}      
+a2<-suppressWarnings(plotcalibration_abs(absrisk_byabs))
+a2
+
+```
+
+## AUC results 1-5y
+
+## AUC relative risk
+
+```{r}
+AUC_relrisk<-as.data.frame(AUCcalc(valdata1_new))
+AUC_relrisk
+```
+
+## AUC absolute risk 1-5y
+```{r}
+
+AUC_absrisk<-as.data.frame(AUCcalc_absrisk(valdata1_new))
+print("AUC by absolute risk")
+AUC_absrisk
+```
+
+## AUC absolute risk age adjusted 1-5y
+```{r}
+
+AUC_absrisk_ageadj<-as.data.frame(AUCcalc_absrisk_ageadjust(valdata1_new))
+AUC_absrisk_ageadj
+```
+
+```{r include=FALSE}
+
+#Datasetup for 2-6y
+#########################
+# For 2-6y
+#first make sure nobody >70 is included
+
+valdata2<-valdata2[which (valdata2$age<=70),]
+
+table(valdata$case_6y)
+table(valdata2$case_6yinv)
+rm(valdata)
+#If number of relatives is NA set to 0
+valdata<-valdata2 %>%
+  mutate(brcancersis=ifelse(is.na(brcancersis),0, brcancersis),
+         brcancerdau=ifelse (is.na(brcancerdau), 0, brcancerdau),
+         brcancerdad=ifelse(is.na(brcancerdad),0, brcancerdad),
+         brcancermom=ifelse(is.na(brcancerdad),0, brcancerdad),
+         fhisfstbcnr=ifelse(is.na(fhisfstbcnr), 0, fhisfstbcnr),
+         fam1grbc50=ifelse(is.na(fam1grbc50),0, fam1grbc50),
+         fhx_fdr_brca=ifelse(is.na(fhx_fdr_brca),0, fhx_fdr_brca))
+
+#Need to create max # relatives if some, but not all, info is available
+valdata<-valdata %>%
+  rowwise %>%
+  mutate(familyhistorynum=as.numeric(sum(brcancersis,brcancerdau,brcancermom,brcancerdad)),
+         familyhistorynum2=as.numeric(sum(fhisfstbcnr,brcancerdad)),
+         familyhistorynum3=as.numeric(sum(fam1grbc50)),
+         familyhistorynum4=as.numeric(sum(as.numeric(fhx_fdr_brca))),
+         maxfamhx=pmax(familyhistorynum,familyhistorynum2, familyhistorynum3, familyhistorynum4))
+
+valdata <- valdata %>%
+  mutate (BRCAFAM_NUM=ifelse(fhx_fdr_brca==0, 0,
+                             ifelse(maxfamhx==1, 1,
+                                    ifelse(maxfamhx>1, 2, 3))),
+          BRCAFAMLT50=ifelse(is.na(fam1grbc50), 2, fam1grbc50),
+          
+          PROSTFAM=2, #all unknown
+          BILAT= 2, #"BILAT", "Both ovaries removed (bilateral oophorectomy)", choices = list("No" = 1, "Yes" = 0, "Unknown" = 2), selected = character(0)),
+          age_end5y=age+5,
+          AGEGE50 =ifelse(age >= 50, 1, 0))
+
+valdata <- valdata %>%
+  mutate(   HT_TOT_IN=height_in,
+            
+            LACT_NEVER_IND=ifelse(parous==1 & !is.na(parous) & !is.na(breastfeed) & breastfeed==1 , 0, 1),
+            
+            #create indicator variable for premenopausal status
+            # groups unknown with postmenopausal
+            MENOSTAT_F_PRE_IND= ifelse(as.numeric(meno_status2)==1 & !is.na(meno_status2), 1,0),
+            
+            # create indicator variable for BMI >= 30
+            BMI_D_GE30_IND =ifelse(bmi >= 30 & !is.na(bmi), 1, 0),
+            
+            # create indicator variable for BMI at age 18 <= 25
+            BMI18_LT25_IND = ifelse(bmi_earlyadult <= 25 & !is.na(bmi_earlyadult), 1, 0),
+            
+            #Assume all bilat oophorectomy are "no" bc we don't have this data- in calculator, unknown are assigned "no"
+            BILAT_NO_IND=1, 
+            # create indicator variable for breast biopsy
+            # groups unknown with no
+            BIOPVAR_EVER_IND=ifelse(biopsy_num >= 1 & !is.na(biopsy_num), 1, 0),
+            
+            # create indicator variable for 1 relative diagnosed with breast cancer after age 50
+            BRCAFAM50_1_IND=ifelse(as.numeric(BRCAFAM_NUM) == 1 & as.numeric(BRCAFAMLT50) != 1 & !is.na(BRCAFAM_NUM) & !is.na(BRCAFAMLT50), 1, 0),	
+            # create indicator variable for 2 relatives diagnosed with breast cancer or any before age 50
+            BRCAFAM50_2_IND=ifelse(as.numeric(BRCAFAM_NUM)==2 & !is.na(BRCAFAM_NUM) | as.numeric(BRCAFAMLT50)==1 & !is.na(BRCAFAMLT50), 1, 0),
+            
+            # create indicator variable for age at menarche < 14
+            # groups unknown with < 14
+            MENARC_LT14_IND=ifelse(as.numeric(agemenarche) <14 |is.na(agemenarche), 1, 0),
+            # create age/menarche interaction variable
+            AGEGE50_MENARCGE14=age_ge50*(1 - MENARC_LT14_IND),
+            # create indicator variable for family history of prostate cancer
+            # groups unknown with no
+            PROSTFAM_D_YES_IND=ifelse(as.numeric(PROSTFAM) == 1, 1, 0),
+            # create age/biopsy interaction variable
+            AGEGE50_BIOPVAR_EVER=age_ge50*BIOPVAR_EVER_IND,
+            # create age/family history interaction variables
+            AGEGE50_BRCAFAM50_1 =age_ge50 * BRCAFAM50_1_IND,
+            AGEGE50_BRCAFAM50_2 =age_ge50 * BRCAFAM50_2_IND,
+            # create BMI/menopause interaction variable
+            BMIGE30_MENO_PRE = BMI_D_GE30_IND * MENOSTAT_F_PRE_IND,
+            #1 is nulliparous here- assuming missing are nulliparous
+            #changed 1.24.25
+            NULPAR_PAROUS_IND=ifelse(parous==0 | is.na(parous), 0, 1),
+            #1 is duration 5+y, 0 is none or <5y or unknown
+            OCDUR_YRS_GE5_IND=ifelse(ocuse_dur/12>=5 & !is.na(ocuse_dur), 1, 0),
+            
+            AGEGE50_BRCAFAM50_1 = age_ge50* BRCAFAM50_1_IND,
+            AGEGE50_BRCAFAM50_2 = age_ge50* BRCAFAM50_2_IND)
+
+#Assign risk 
+
+# 1 - the attributable risk 
+BRCAN_1_AR <- 0.3576669608
+
+# parameter estimates to calculate linear predictors
+AGEGE50_BIOPVAR_EVER_BETA <- -0.241570698
+AGEGE50_BRCAFAM50_1_BETA <- 0.0813301514
+AGEGE50_BRCAFAM50_2_BETA <- -0.556421235
+AGEGE50_MENARCGE14_BETA <- 0.2388811256
+BILAT_NO_BETA <- 0.214297404
+BIOPVAR_EVER_BETA <- 0.4629495248
+BMI18_LT25_BETA <- 0.1508789583
+BMIGE30_MENO_PRE_BETA <- -0.165478793
+BMI_D_GE30_BETA <- 0.1284392293
+BRCAFAM50_1_BETA <- 0.3416303435
+BRCAFAM50_2_BETA <- 0.959041669
+LACT_NEVER_BETA <- 0.1682571258
+MENARC_LT14_BETA <- 0.3177481922
+MENOSTAT_F_PRE_BETA <- 0.2383607104
+NULPAR_PAROUS_BETA <- 0.0169183249
+OCDUR_YRS_GE5_BETA <- 0.1398767985
+PROSTFAM_D_YES_BETA <- 0.1363762353
+
+# create linear predictor for each variable
+valdata<- valdata %>%
+  mutate(LP_BILAT = BILAT_NO_IND * BILAT_NO_BETA,
+         LP_BIOPVAR =BIOPVAR_EVER_IND*BIOPVAR_EVER_BETA + AGEGE50_BIOPVAR_EVER*AGEGE50_BIOPVAR_EVER_BETA,
+         LP_BMI18 = BMI18_LT25_IND* BMI18_LT25_BETA,
+         LP_BMI_BY_MENO = BMI_D_GE30_IND*BMI_D_GE30_BETA + MENOSTAT_F_PRE_IND*MENOSTAT_F_PRE_BETA + BMIGE30_MENO_PRE* BMIGE30_MENO_PRE_BETA,
+         LP_BRCAFAM50 = BRCAFAM50_1_IND*BRCAFAM50_1_BETA + AGEGE50_BRCAFAM50_1*AGEGE50_BRCAFAM50_1_BETA + BRCAFAM50_2_IND * BRCAFAM50_2_BETA + AGEGE50_BRCAFAM50_2 * AGEGE50_BRCAFAM50_2_BETA,
+         LP_LACTEVER_BIN = (as.numeric(LACT_NEVER_IND) * LACT_NEVER_BETA),
+         LP_MENARC = MENARC_LT14_IND* MENARC_LT14_BETA + AGEGE50_MENARCGE14 * AGEGE50_MENARCGE14_BETA,
+         LP_NULPAR = as.numeric(NULPAR_PAROUS_IND) * NULPAR_PAROUS_BETA,
+         LP_OCDUR_YRS = as.numeric(OCDUR_YRS_GE5_IND) * OCDUR_YRS_GE5_BETA,
+         LP_PROSTFAM_D = PROSTFAM_D_YES_IND* PROSTFAM_D_YES_BETA,
+         LP_bwhs =LP_BILAT + LP_BIOPVAR + LP_BMI18 + LP_BMI_BY_MENO + LP_BRCAFAM50 + LP_LACTEVER_BIN + LP_MENARC + LP_NULPAR + LP_OCDUR_YRS + LP_PROSTFAM_D)
+
+valdata<-valdata %>%
+  mutate(RRStar = exp(LP_bwhs))
+```
+
+### Check that no missing RRStar 2-6y
+```{r}
+#check that =0
+sum(is.na(valdata$RRStar))
+```
+
+```{r include=FALSE}
+#Assign risks
+#risks are stored as AbsRsk5 : 5y risk and AbsRsk10: 10y risk
+
+valdata <- valdata %>%
+  mutate(age=as.integer(age),
+         t1=age,
+         t2=t1+1,
+         t3=t1+2,
+         t4=t1+3,
+         t5=t1+4,
+         t6=t1+5,
+         t7=t1+6,
+         t8=t1+7,
+         t9=t1+8,
+         t10=t1+9, 
+         
+         H1 = BC_AA_inc[BC_AA_inc$age==t1,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t1,]$h2,
+         H2 = BC_AA_inc[BC_AA_inc$age==t2,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t2,]$h2,
+         H3 = BC_AA_inc[BC_AA_inc$age==t3,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t3,]$h2,
+         H4 = BC_AA_inc[BC_AA_inc$age==t4,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t4,]$h2,
+         H5 = BC_AA_inc[BC_AA_inc$age==t5,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t5,]$h2,
+         
+         H6 = BC_AA_inc[BC_AA_inc$age==t6,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t6,]$h2,
+         H7 = BC_AA_inc[BC_AA_inc$age==t7,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t7,]$h2,
+         H8 = BC_AA_inc[BC_AA_inc$age==t8,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t8,]$h2,
+         H9 = BC_AA_inc[BC_AA_inc$age==t9,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t9,]$h2,
+         H10 = BC_AA_inc[BC_AA_inc$age==t10,]$BRCAN_inc * BRCAN_1_AR * RRStar + mort[mort$age==t10,]$h2,
+         
+         Cum_H1 = 0,
+         Cum_H2 = H1,
+         Cum_H3 = H1 + H2,
+         Cum_H4 = H1 + H2 + H3,
+         Cum_H5 = H1 + H2 + H3 + H4,
+         
+         Cum_H6 = H1 + H2 + H3 + H4 + H5,
+         Cum_H7 = H1 + H2 + H3 + H4 + H5 + H6,
+         Cum_H8 = H1 + H2 + H3 + H4 + H5 + H6 + H7,
+         Cum_H9 = H1 + H2 + H3 + H4 + H5 + H6 + H7 + H8,
+         Cum_H10 = H1 + H2 + H3 + H4 + H5 + H6 + H7 + H8 + H9,
+         
+         PI_1 = (( (BC_AA_inc[BC_AA_inc$age==t1,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H1 ) * exp(-Cum_H1)) * (1-exp(-H1)),
+         PI_2 = (( (BC_AA_inc[BC_AA_inc$age==t2,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H2 ) * exp(-Cum_H2)) * (1-exp(-H2)),
+         PI_3 = (( (BC_AA_inc[BC_AA_inc$age==t3,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H3 ) * exp(-Cum_H3)) * (1-exp(-H3)),
+         PI_4 = (( (BC_AA_inc[BC_AA_inc$age==t4,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H4 ) * exp(-Cum_H4)) * (1-exp(-H4)),
+         PI_5 = (( (BC_AA_inc[BC_AA_inc$age==t5,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H5 ) * exp(-Cum_H5)) * (1-exp(-H5)),
+         
+         PI_6 = (( (BC_AA_inc[BC_AA_inc$age==t6,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H6 ) * exp(-Cum_H6)) * (1-exp(-H6)),
+         PI_7 = (( (BC_AA_inc[BC_AA_inc$age==t7,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H7 ) * exp(-Cum_H7)) * (1-exp(-H7)),
+         PI_8 = (( (BC_AA_inc[BC_AA_inc$age==t8,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H8 ) * exp(-Cum_H8)) * (1-exp(-H8)),
+         PI_9 = (( (BC_AA_inc[BC_AA_inc$age==t9,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H9 ) * exp(-Cum_H9)) * (1-exp(-H9)),
+         PI_10 = (( (BC_AA_inc[BC_AA_inc$age==t10,]$BRCAN_inc * BRCAN_1_AR * RRStar) / H10 ) * exp(-Cum_H10)) * (1-exp(-H10)),
+         
+         
+         AbsRsk5 = round(100*(PI_1 + PI_2 + PI_3 + PI_4 + PI_5), 1),
+         AbsRsk10 = round(100*(PI_1 + PI_2 + PI_3 + PI_4 + PI_5 + PI_6 + PI_7 + PI_8 + PI_9 + PI_10), 1),
+         AvAbsRsk5 = round(average[average$age==t1,]$predrisk5, 1),
+         AvAbsRsk10 = round(average[average$age==t1,]$predrisk10, 1),
+         absrisk=AbsRsk5/100
+  )
+
+valdata<-as.data.frame(valdata)
+
+```
+
+## Summary risks 2-6y
+
+```{r echo=FALSE}
+summarizerisks<-function(data, var){
+  data %>% group_by(cohort) %>%
+    summarise(n= sum(!is.na({{var}})),
+              na= sum(is.na({{var}})),
+              mean = mean({{var}}, na.rm = TRUE),
+              sd = sd({{var}}, na.rm = TRUE),
+              min=min({{var}}, na.rm=TRUE),
+              q25 = quantile({{var}}, 0.25, na.rm = TRUE),
+              median=median({{var}}, na.rm=TRUE),
+              q75 = quantile({{var}}, 0.75, na.rm = TRUE),
+              max= max({{var}}, na.rm=TRUE))
+}
+
+a<-summarizerisks(valdata, RRStar)
+b<-summarizerisks(valdata, absrisk)
+bwhsrisks<-rbind(a,b)
+bwhsrisks
+hist(valdata$RRStar, col="darkblue")
+hist(valdata$absrisk, col="darkred")
+valdata_risks<-valdata[,c("cohort","subject_id","RRStar","absrisk","AbsRsk5","AbsRsk10")]
+```
+
+```{r include=FALSE}
+#OPTIONAL CODE:
+#Save absolute risks 
+#write.csv(valdata_risks, "C:/Users/krist/Box/BCRPP Concept 2_ValidatingExistingModels/Data - Opted-in Studies/AllRisks/2to6y/BWHS/WHI.csv")
+```
+
+## Calibration 2-6y
+```{r include=FALSE}
+########################################################
+# Calibration - use iCARE Validate    #
+########################################################
+
+#timevar needs to be changed to meet requirements, change to infinity if not a case (invasive or in situ).
+
+#If timediff case yr is missing assign as infinite (past 5 y)
+#Reassigned so all that are =5y are considered "within" 5 y (conversation with Julie and Gary 1.24.25)
+valdata$time.of.onset<-ifelse(valdata$case_invasive==1 & !is.na(valdata$time_bltodx1) & valdata$time_bltodx1<=5, valdata$time_bltodx1, Inf)
+valdata$case_5yinv<-ifelse(valdata$case_invasive==1 & valdata$time_bltodx1<=5, 1, 0)
+
+
+#Add age end
+valdata<-valdata%>%
+  mutate(sampling.fraction=1,
+         ageend=pmin(age+5, age+timediff))
+
+#5y invasive first 
+#Rename
+
+valdata_new<-valdata[,c("id","age","ageend","case_5yinv","RRStar","absrisk","time.of.onset","sampling.fraction", "LP_bwhs","race", "cohort")] 
+
+#Rename columns so it matches iCARE scheme
+colnames(valdata_new)<-c("id","study.entry.age","study.exit.age","observed.outcome","relrisk","absrisk", "time.of.onset","sampling.weights","lp", "race","cohort")
+```
+
+## E/O overall 2-6y
+```{r}
+eo<-as.data.frame(obsexpected_overall(valdata_new))
+eo
+```
+## E/O by decile 2-6y
+```{r}
+eo_bycat_invas<-as.data.frame(obsexpected_bycat_abs(valdata_new))
+print("E/O by cat, invasive")
+eo_bycat_invas
+```
+## Calibration plots
+```{r echo=FALSE}
+absrisk_byabs<-as.data.frame(returnabsrisk_abs(valdata_new))
+print("Absolute risk by absolute risk decile")
+absrisk_byabs
+
+plotcalibration_abs= function(dataset1){
+  maxx=max(dataset1$predicted.prob.cat)*100+0.2
+  maxy=max(dataset1$upper.limit.absrisk.cat)*100+0.2
+  miny=min(dataset1$lower.limit.absrisk.cat)*100-0.2
+  plot_test<-ggplot(data=dataset1,aes(x=predicted.prob.cat*100,y=observed.prob.cat*100)) +
+    geom_point(color="purple4",size=4) +
+    geom_abline(intercept=0, slope=1,linetype="dotted") + geom_errorbar(aes(ymin=lower.limit.absrisk.cat*100, ymax=upper.limit.absrisk.cat*100), size=0.3) +
+    labs(x='Expected risk (%)', y='Observed risk (%)', title="Absolute risk calibration")+ 
+    scale_x_continuous(limits=c(0,maxx))  + scale_y_continuous(limits=c(miny,maxy)) +
+    theme(axis.text.x=element_text(size=12),
+          axis.text.y=element_text(size=12),
+          axis.title.x = element_text(vjust = 0, size = 14),
+          axis.title.y = element_text(vjust = 2, size = 14), 
+          axis.title=element_text(size=16), legend.position="none") 
+  return(plot_test)
+}      
+a2<-suppressWarnings(plotcalibration_abs(absrisk_byabs))
+a2
+
+```
+## AUC for 2-6y
+
+## AUC rel risk
+
+```{r}
+# AUC 
+AUC_relrisk<-as.data.frame(AUCcalc(valdata_new))
+AUC_relrisk
+```
+
+## AUC by absolute risk
+
+```{r}
+AUC_absrisk<-as.data.frame(AUCcalc_absrisk(valdata_new))
+print("AUC by absolute risk")
+AUC_absrisk
+
+```
+## AUC by absolute risk age adjusted
+```{r}
+AUC_absrisk_ageadj<-as.data.frame(AUCcalc_absrisk_ageadjust(valdata_new))
+AUC_absrisk_ageadj
+```
+
+```{r instructions, include=FALSE}
+#You will now need to run rmarkdown::render in your R Console. This cannot be included in the .Rmd file directly, or it will iteratively run.
+#Please enter this code into the console:
+#     rmarkdown::render("FILEPATH/Ext_Model_Calibration_BWHS.Rmd")
+#The resulting .html file will be called Ext_Model_Calibration_Gail as well, and will be found in the same file path as that of your .Rmd file.
+```

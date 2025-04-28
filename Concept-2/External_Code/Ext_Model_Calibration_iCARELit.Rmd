@@ -1,0 +1,507 @@
+---
+title: "Ext_Model_Calibration_iCARELit"
+output:
+  html_document: default
+    df_print: paged
+date: "2025-04-15"
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+options(knitr.duplicate.label="allow")
+```
+
+```{r include=FALSE}
+#Install required packages and source functions
+
+if(!require(tidyverse)){
+  install.packages("tidyverse")
+  suppress.warnings(library("dplyr"))
+}
+if(!require(tidyverse)){
+  install.packages("tidyverse")
+  suppress.warnings(library("tidyverse"))
+}
+if(!require(lubridate)){
+  install.packages("lubridate")
+  suppress.warnings(library("lubridate"))
+}
+if(!require(ggplot2)){
+  install.packages("ggplot2")
+  suppress.warnings(library("ggplot2"))
+}
+if(!require(gtools)){
+  install.packages("gtools")
+  suppress.warnings(library("gtools"))
+}
+
+if(!require(BCRA)){
+  install.packages("BCRA")
+  suppress.warnings(library("BCRA"))
+}
+
+
+#Load the required functions
+source("FILEPATH/Functions_ExistingModelValidation.R",local=knitr::knit_global())
+```
+
+```{r include=FALSE}
+
+#set sampling fraction to 1 - needed variable in iCARE Lit
+valdata$sampling.fraction<-1
+valdata2$sampling.fraction<-1
+```
+
+
+```{r include=FALSE}
+
+#This is the datasetup to calculate risks using iCARE-Lit.
+#############
+# 1 to 5y
+#############
+table(valdata$meno_age_cat5)
+data_icare <- valdata %>%  
+  #infinity if outside followup
+  mutate(time.of.onset=ifelse(case_5yinv==1, timediff_case, Inf),
+         sampling.fraction=ifelse(case_5yinv==1,1,
+                                  sampling.fraction),
+         
+         height=height/10, 
+         age=floor(age),
+         agestart=age,
+         ageend=pmin(age+5, age+timediff),
+         age_at_menarche=relevel(as.factor(agemenarche_cat7), ref="4"),
+         parity=as.factor(parity_cat),
+         oc_current=ocuse_current,
+         oc_ever=ocuse_ever,
+         bbd=bbd_history,
+         age_first_birth=ifelse(parity_new>0, ageflb_parous, 
+                                ifelse(parity_new==0 | parous==0, 1, NA)),
+         age_first_birth=as.factor(age_first_birth),
+         famhist=famhx_first,
+         alcohol_intake=as.factor(alcgm_cat7),
+         age_at_menopause=ifelse(!is.na(meno_age_cat5), relevel(as.factor(meno_age_cat5), ref="4"),NA),
+         hrt=as.factor(hrt_use_icare),
+         hrt_type=pmh_type_icare)
+
+```
+
+```{r include=FALSE}
+# Divide datasets for lt50 and ge50
+# Note: If you have no, or very few participants <50 you will just run for the >=50 group.
+
+data_icare_lt50<-data_icare[which (data_icare$age<50),]
+data_icare_ge50<-data_icare[which (data_icare$age>=50),]
+
+## Fit names to iCARE objects
+## Note: bmi curc differs for lt50 and ge50
+
+data_icare_lt50<- data_icare_lt50 %>% 
+  mutate(bmi_curc=ifelse(bmi_cat4==1, 0, 
+                         ifelse(bmi_cat4==2, 1, 
+                                ifelse(bmi_cat4==3, 2, 
+                                       ifelse(bmi_cat4==4,3, NA)))),
+         bmi_curc=relevel(as.factor(bmi_curc), ref="1"))
+
+data_icare_ge50<-data_icare_ge50 %>%
+  mutate(bmi_curc=as.factor(bmi_cat3))
+
+#Restrict for dataset 2 (2-6 y followup) so it doesn't go past 75 years as that is the limit.
+
+data_icare_ge50<-data_icare_ge50[which (data_icare_ge50$age<76),]
+
+data_icare_lt50_val<-data_icare_lt50[,c("subject_id", "cohort", "race","case_5yinv","age","ageend","time.of.onset","sampling.fraction")]
+#change names
+names(data_icare_lt50_val)<-c("id","cohort","race","observed.outcome","study.entry.age","study.exit.age","time.of.onset","sampling.fraction")
+
+data_icare_ge50_val<-data_icare_ge50[,c("subject_id", "cohort", "race","case_5yinv","age","ageend","time.of.onset","sampling.fraction")]
+#change names
+names(data_icare_ge50_val)<-c("id","cohort","race","observed.outcome","study.entry.age","study.exit.age","time.of.onset","sampling.fraction")
+
+```
+
+```{r include=FALSE}
+## 2a. installation
+if(!require(BiocManager)){
+  install.packages("BiocManager")
+  BiocManager::install("iCARE")
+  suppress.warnings(library(iCARE))
+}
+
+# ** Data notes: iCARE dependencies include: *model.lit.lt50*, *cov_info_lit_lt50*, *model.lit.ge50*, and *cov_info_lit_ge50* apply to ALL studies**
+# ** For US based studies, you can use *bc_inc_US* and *mort_US* and *ref_lit_lt50_US* and *ref_lit_ge50_US***
+# ** If you are a non-US cohort, PLEASE USE reference datasets, incidence rates, and mortality rates that are relevant to your country/region**
+# ** You will need to replace reference to datasets in 2b and 2c to align with your data **
+# ** Variable names included in ref. dataset need to be same names as those in the validation dataset. Change names in validation dataset if needed.**
+
+##  2b. <50 absolute risk
+
+#See above note: will need to replace reference datasets, mortality, and inc rates based on cohort
+#Please note, these will take a bit to run.
+
+results_iCARE_lt50=computeAbsoluteRisk(model.formula = model.lit.lt50, model.cov.info = cov_info_lit_lt50, 
+                                       model.snp.info = NULL, model.log.RR = beta_lit_lt50,
+                                       model.ref.dataset = ref_lit_lt50_US, 
+                                       model.ref.dataset.weights = NULL,
+                                       model.disease.incidence.rates=bc_inc_US,
+                                       model.competing.incidence.rates = mort_US,
+                                       model.bin.fh.name = "famhist", n.imp = 5,
+                                       apply.age.start=data_icare_lt50$age, apply.age.interval.length=5,
+                                       apply.cov.profile  = data_icare_lt50[, names(ref_lit_lt50_US)], #dataset to apply 
+                                       apply.snp.profile = NULL,
+                                       use.c.code = 1,  return.lp = TRUE, 
+                                       return.refs.risk = TRUE)
+
+## 2c. >=50 absolute risk
+#See above note: will need to replace reference datasets, mortality, and inc rates based on cohort
+
+results_iCARE_ge50=computeAbsoluteRisk(model.formula = model.lit.ge50, model.cov.info = cov_info_lit_ge50, 
+                                       model.snp.info = NULL, model.log.RR = beta_lit_ge50,
+                                       model.ref.dataset = ref_lit_ge50_US, 
+                                       model.ref.dataset.weights = NULL,
+                                       model.disease.incidence.rates=bc_inc_US,
+                                       model.competing.incidence.rates = mort_US,
+                                       model.bin.fh.name = "famhist", n.imp = 5,
+                                       apply.age.start=data_icare_ge50$age, apply.age.interval.length=5,
+                                       apply.cov.profile  = data_icare_ge50[, names(ref_lit_ge50_US)], #dataset to apply 
+                                       apply.snp.profile = NULL,
+                                       use.c.code = 1,  return.lp = TRUE, 
+                                       return.refs.risk = TRUE)
+
+##Store risk estimates in dataframes for calibration
+
+#store summary with abs risk as data frame so add in risk estimates
+
+results_iCARE_lt50det<-as.data.frame(results_iCARE_lt50$details)
+#add in lps
+lps_lt50<-as.vector(results_iCARE_lt50$lps)
+results_iCARE_lt50det$lps<-lps_lt50 
+
+results_iCARE_ge50det<-as.data.frame(results_iCARE_ge50$details)
+lps_ge50<-as.vector(results_iCARE_ge50$lps)
+results_iCARE_ge50det$lps<-lps_ge50
+
+#Dataset: results_iCARE_lt50det has Risk_Estimate- abs risk & lps 
+#colnames(data_icare_lt50_val)
+#Set absolute risk vector & lps
+data_icare_lt50_val$absrisk<-results_iCARE_lt50det$Risk_Estimate
+data_icare_lt50_val$lp<-results_iCARE_lt50det$lps
+
+data_icare_ge50_val$absrisk<-results_iCARE_ge50det$Risk_Estimate
+data_icare_ge50_val$lp<-results_iCARE_ge50det$lps
+
+data_icare_lt50$absrisk<-results_iCARE_lt50det$Risk_Estimate
+data_icare_ge50$absrisk<-results_iCARE_ge50det$Risk_Estimate
+
+names(data_icare_lt50_val)<-c("id","cohort","race","observed.outcome", "study.entry.age", "study.exit.age", "time.of.onset", "sampling.weights",  "absrisk", "lp")
+names(data_icare_ge50_val)<-c("id","cohort","race","observed.outcome", "study.entry.age", "study.exit.age", "time.of.onset", "sampling.weights",  "absrisk", "lp")
+
+# Combine datasets
+data_icare_full<-rbind(data_icare_lt50_val, data_icare_ge50_val)
+data_icare_full$absrisk<-as.numeric(data_icare_full$absrisk)
+
+```
+
+##Summary of iCARE-Lit risks 1-5y
+
+```{r echo=FALSE}
+
+a<-summarizerisks(data_icare_full, absrisk)
+b<-summarizerisks(data_icare_full, lp)
+icarerisks<-rbind(a,b)
+rownames(icarerisks)<-c("AbsRisk","LP")
+icarerisks
+```
+
+```{r include=FALSE}
+
+#Save absolute risks and absolute risk cats for iCARE model for all if wanted
+#data_risks1<-data_icare_full[,c("id","cohort","absrisk","lp")]
+#write.csv(data_risks1, "filepath/icarerisks_1to5y_CPS2.csv") #rename if desired
+
+```
+##Model calibration 1-5y
+
+###E/O overall
+
+```{r echo=FALSE}
+
+## E/O invasive
+eo_invas<-as.data.frame(obsexpected_overall(data_icare_full))
+print("E/O invasive only")
+eo_invas
+```
+
+###E/O by decile 1-5y
+
+```{r echo=FALSE}
+eo_bycat_invas<-as.data.frame(obsexpected_bycat_abs(data_icare_full))
+print("E/O by cat, invasive")
+eo_bycat_invas
+```
+
+##AUCs for iCARE Lit model
+
+###AUC by relative risk 1-5y
+
+```{r echo=F}
+AUC1<-as.data.frame(AUCcalc(data_icare_full))
+print("AUC by relative risk")
+AUC1
+```
+##AUC absolute risk 1-5y
+
+```{r echo=FALSE}
+AUCageinc<-as.data.frame(AUCcalc_absrisk(data_icare_full))
+print("AUC age incorporated")
+AUCageinc
+```
+
+##AUC absolute risk age adjusted 1-5y
+
+```{r echo=FALSE}
+AUCageinc<-as.data.frame(AUCcalc_absrisk_ageadjust(data_icare_full))
+print("AUC age incorporated")
+AUCageinc
+
+```
+
+## Calibration plots and data 1-5y
+
+```{r}
+icare_absrisk_byabs<-as.data.frame(returnabsrisk_abs(data_icare_full))
+print("Absolute risk by absolute risk decile")
+icare_absrisk_byabs
+
+a1<-suppressWarnings(plotcalibration_abs(icare_absrisk_byabs))
+plot(a1)
+```
+
+```{r include=FALSE} 
+#This repeats all done above for the follow up period 2-6 y (valdata2)
+#2-6y
+
+ data_icare <- valdata2 %>%  
+   #infinity if outside followup
+   mutate(time.of.onset=ifelse(case_6yinv==1, timediff_case, Inf),
+          sampling.fraction=ifelse(case_6yinv==1,1,
+                                   sampling.fraction),
+          
+          height=height/10, 
+          age=floor(age),
+          agestart=age,
+          ageend=pmin(age+5, age+timediff),
+          age_at_menarche=relevel(as.factor(agemenarche_cat7), ref="4"),
+          parity=as.factor(parity_cat),
+          oc_current=ocuse_current,
+          oc_ever=ocuse_ever,
+          bbd=bbd_history,
+          age_first_birth=ifelse(parity_new>0, ageflb_parous, 
+                                 ifelse(parity_new==0 | parous==0, 1, NA)),
+          age_first_birth=as.factor(age_first_birth),
+          famhist=famhx_first,
+          alcohol_intake=as.factor(alcgm_cat7),
+          age_at_menopause=ifelse(!is.na(meno_age_cat5), relevel(as.factor(meno_age_cat5), ref="4"), NA),
+          hrt=as.factor(hrt_use_icare),
+          hrt_type=pmh_type_icare)
+ 
+ ###########################
+ # Divide for lt50 and ge50
+ ###########################
+ 
+
+data_icare_lt50<-data_icare[which (data_icare$age<50),]
+
+data_icare_ge50<-data_icare[which (data_icare$age>=50),]
+
+##  1b. Fit names to iCARE objects
+## bmi curc differs for lt50 and ge50
+#can't relevel b/c ref isn't in dataset.
+data_icare_lt50<- data_icare_lt50 %>% 
+  mutate(bmi_curc=ifelse(bmi_cat4==1, 0, 
+                         ifelse(bmi_cat4==2, 1, 
+                                ifelse(bmi_cat4==3, 2, 
+                                       ifelse(bmi_cat4==4,3, NA)))),
+         bmi_curc=relevel(as.factor(bmi_curc), ref="1"))
+
+data_icare_ge50<-data_icare_ge50 %>%
+  mutate(bmi_curc=as.factor(bmi_cat3))
+
+#Restrict for #2 so it doesn't go past 75 years
+
+data_icare_ge50<-data_icare_ge50[which (data_icare_ge50$age<76),]
+
+
+data_icare_lt50_val<-data_icare_lt50[,c("subject_id", "cohort", "race","case_5yinv","age","ageend","time.of.onset","sampling.fraction")]
+#change names
+names(data_icare_lt50_val)<-c("id","cohort","race","observed.outcome","study.entry.age","study.exit.age","time.of.onset","sampling.fraction")
+
+data_icare_ge50_val<-data_icare_ge50[,c("subject_id", "cohort", "race","case_5yinv","age","ageend","time.of.onset","sampling.fraction")]
+#change names
+names(data_icare_ge50_val)<-c("id","cohort","race","observed.outcome","study.entry.age","study.exit.age","time.of.onset","sampling.fraction")
+
+## 2a. installation
+
+#install.packages("BiocManager")
+#BiocManager::install("iCARE")
+library(iCARE)
+
+# ** Data notes: iCARE dependencies include: *model.lit.lt50*, *cov_info_lit_lt50*, *model.lit.ge50*, and *cov_info_lit_ge50* apply to ALL studies**
+# ** For US based studies, you can use *bc_inc_US* and *mort_US* and *ref_lit_lt50_US* and *ref_lit_ge50_US***
+# ** If you are a non-US cohort, PLEASE USE reference datasets, incidence rates, and mortality rates that are relevant to your country/region**
+# ** You will need to replace reference to datasets in 2b and 2c to align with your data **
+# ** Variable names included in ref. dataset need to be same names as those in the validation dataset. Change names in validation dataset if needed.**
+
+##  2b. <50 absolute risk
+
+#See above note: will need to replace reference datasets, mortality, and inc rates based on cohort
+
+
+results_iCARE_lt50=computeAbsoluteRisk(model.formula = model.lit.lt50, model.cov.info = cov_info_lit_lt50, 
+                                       model.snp.info = NULL, model.log.RR = beta_lit_lt50,
+                                       model.ref.dataset = ref_lit_lt50_US, 
+                                       model.ref.dataset.weights = NULL,
+                                       model.disease.incidence.rates=bc_inc_US,
+                                       model.competing.incidence.rates = mort_US,
+                                       model.bin.fh.name = "famhist", n.imp = 5,
+                                       apply.age.start=data_icare_lt50$age, apply.age.interval.length=5,
+                                       apply.cov.profile  = data_icare_lt50[, names(ref_lit_lt50_US)], #dataset to apply 
+                                       apply.snp.profile = NULL,
+                                       use.c.code = 1,  return.lp = TRUE, 
+                                       return.refs.risk = TRUE)
+
+
+
+## 2c. >=50 absolute risk
+#See above note: will need to replace reference datasets, mortality, and inc rates based on cohort
+
+results_iCARE_ge50=computeAbsoluteRisk(model.formula = model.lit.ge50, model.cov.info = cov_info_lit_ge50, 
+                                       model.snp.info = NULL, model.log.RR = beta_lit_ge50,
+                                       model.ref.dataset = ref_lit_ge50_US, 
+                                       model.ref.dataset.weights = NULL,
+                                       model.disease.incidence.rates=bc_inc_US,
+                                       model.competing.incidence.rates = mort_US,
+                                       model.bin.fh.name = "famhist", n.imp = 5,
+                                       apply.age.start=data_icare_ge50$age, apply.age.interval.length=5,
+                                       apply.cov.profile  = data_icare_ge50[, names(ref_lit_ge50_US)], #dataset to apply 
+                                       apply.snp.profile = NULL,
+                                       use.c.code = 1,  return.lp = TRUE, 
+                                       return.refs.risk = TRUE)
+
+##2d. Store risk estimates in dataframes for calibration
+
+#store summary with abs risk as data frame so add in risk estimates
+
+results_iCARE_lt50det<-as.data.frame(results_iCARE_lt50$details)
+#add in lps
+lps_lt50<-as.vector(results_iCARE_lt50$lps)
+results_iCARE_lt50det$lps<-lps_lt50 
+
+results_iCARE_ge50det<-as.data.frame(results_iCARE_ge50$details)
+lps_ge50<-as.vector(results_iCARE_ge50$lps)
+results_iCARE_ge50det$lps<-lps_ge50
+
+#Dataset: results_iCARE_lt50det has Risk_Estimate- abs risk & lps 
+#colnames(data_icare_lt50_val)
+#Set absolute risk vector & lps
+data_icare_lt50_val$absrisk<-results_iCARE_lt50det$Risk_Estimate
+data_icare_lt50_val$lp<-results_iCARE_lt50det$lps
+
+data_icare_ge50_val$absrisk<-results_iCARE_ge50det$Risk_Estimate
+data_icare_ge50_val$lp<-results_iCARE_ge50det$lps
+
+data_icare_lt50$absrisk<-results_iCARE_lt50det$Risk_Estimate
+data_icare_ge50$absrisk<-results_iCARE_ge50det$Risk_Estimate
+
+names(data_icare_lt50_val)<-c("id","cohort","race","observed.outcome", "study.entry.age", "study.exit.age", "time.of.onset", "sampling.weights",  "absrisk", "lp")
+names(data_icare_ge50_val)<-c("id","cohort","race","observed.outcome", "study.entry.age", "study.exit.age", "time.of.onset", "sampling.weights",  "absrisk", "lp")
+data_icare_full<-rbind(data_icare_lt50_val, data_icare_ge50_val)
+data_icare_full$absrisk<-as.numeric(data_icare_full$absrisk)
+```
+
+##Summary of iCARE risks 2-6y
+```{r echo=FALSE}
+# Step 3. Combine datasets
+a<-summarizerisks(data_icare_full, absrisk)
+b<-summarizerisks(data_icare_full, lp)
+icarerisks<-rbind(a,b)
+rownames(icarerisks)<-c("AbsRisk","LP")
+icarerisks
+```
+```{r include=FALSE}
+#Optional
+
+ #Save absolute risks and absolute risk cats for icare model for all if wanted
+# data_risks2<-data_icare_full[,c("id","cohort","absrisk","lp")]
+# write.csv(data_risks2, "filepath/icare_2to6y_risks_CTS.csv") #rename if you want
+
+```
+##Calibration for 2-6y
+
+###E/O overall 2-6 y
+
+```{r echo=FALSE}
+ # Step 4. Calibration
+
+ ## 4a. E/O invasive
+ eo_invas<-as.data.frame(obsexpected_overall(data_icare_full))
+ print("E/O invasive only")
+ eo_invas
+```
+
+###E/O by decile 2-6 y
+
+```{r echo=FALSE} 
+ eo_bycat_invas<-as.data.frame(obsexpected_bycat_abs(data_icare_full))
+ print("E/O by cat, invasive")
+ eo_bycat_invas
+```
+
+##AUC for iCARE risks, 2-6y
+
+###AUC by rel risk 2-6y
+
+```{r echo=F}
+AUC1<-as.data.frame(AUCcalc(data_icare_full))
+print("AUC by rel risk")
+AUC1
+```
+##AUC absolute risk 2-6y
+
+```{r echo=FALSE}
+AUCageinc<-as.data.frame(AUCcalc_absrisk(data_icare_full))
+print("AUC by absolute risk")
+AUCageinc
+```
+
+##AUC absolute risk age adjusted 2-6y
+
+```{r echo=FALSE}
+AUCageinc<-as.data.frame(AUCcalc_absrisk_ageadjust(data_icare_full))
+print("AUC by absolute risk, age-adjusted")
+AUCageinc
+
+```
+ 
+## Calibration plots
+
+```{r echo=FALSE} 
+icare_absrisk_byabs<-as.data.frame(returnabsrisk_abs(data_icare_full))
+print("Absolute risk by absolute risk decile")
+icare_absrisk_byabs
+ 
+ 
+ ## Calibration plot of absolute risk
+ 
+ a1<-suppressWarnings(plotcalibration_abs(icare_absrisk_byabs))
+ plot(a1)
+ ## Calibration plot of absolute risk #2
+```
+
+```{r instructions, include=FALSE}
+#You will now need to run rmarkdown::render in your R Console. This cannot be included in the .Rmd file directly, or it will iteratively run.
+#Please enter this code into the console:
+#     rmarkdown::render("FILEPATH/Ext_Model_Calibration_iCARELit.Rmd")
+#The resulting .html file will be called Ext_Model_Calibration_Gail as well, and will be found in the same file path as that of your .Rmd file.
+```
+

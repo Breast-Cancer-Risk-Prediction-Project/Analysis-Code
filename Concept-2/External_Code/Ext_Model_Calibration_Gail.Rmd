@@ -1,0 +1,455 @@
+```{r include=FALSE}
+#Instructions:
+
+# This file will read in your clean validation dataset, created after
+# running "Step1.DataCleaning.R" and will perform model calibration
+# using iCARE-Validate for the Gail (BCRAT) model.
+
+# PLEASE INSERT COHORT ACRONYM IN [] BELOW for the FILENAME
+# AND INSERT RUN DATE
+
+
+
+# Run Notes: You will need to install these packages if you don't have them (available online):
+# #BCRAT packages - install.packages("BCRA") - please run outside of Rmarkdown:
+#  https://dceg.cancer.gov/tools/risk-assessment/bcra
+# #iCARE packages - install.packages("BiocManager")
+  #                  BiocManager::install("iCARE")
+# https://www.bioconductor.org/packages/release/bioc/html/iCARE.html
+
+#Dataset: You will use datasets from Create2datasets.Rmd: valdata and valdata2. 
+#If these are not in your R environment, please re-run Step2.Create2datasets.Rmd without knitting, and do not clear your R environment.
+
+# After specifying your filepaths, (ctrl+f: "filepath" for where to insert), you can simply:
+# hit "Knit -> Knit to Word" and this will run the full document and produce output.
+
+# Please send the finalized document to kristen_brantley@dfci.harvard.edu
+# If any issues arise when trying to run this document, please reach out to Kristen Brantley. 
+```
+
+
+---
+title: "Ext_Model_Calibration_Gail [CTS]"
+output: html_document
+date: "MM-DD-YYYY"
+---
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+options(knitr.duplicate.label="allow")
+```
+
+
+
+
+```{r chunk1, echo=FALSE, include=FALSE}
+#Here you will load all required packages and functions
+source("FILEPATH/Functions_ExistingModelValidation.R", local=knitr::knit_global())
+
+if(!require(tidyverse)){
+  install.packages("tidyverse")
+  suppress.warnings(library("dplyr"))
+}
+if(!require(tidyverse)){
+  install.packages("tidyverse")
+  suppress.warnings(library("tidyverse"))
+}
+if(!require(lubridate)){
+  install.packages("lubridate")
+  suppress.warnings(library("lubridate"))
+}
+if(!require(ggplot2)){
+  install.packages("ggplot2")
+  suppress.warnings(library("ggplot2"))
+}
+if(!require(gtools)){
+  install.packages("gtools")
+  suppress.warnings(library("gtools"))
+}
+
+if(!require(BCRA)){
+  install.packages("BCRA")
+  suppress.warnings(library("BCRA"))
+}
+#Load the data from BCRA
+data("BrCa_lambda1")
+data("BrCa_lambda2")
+data("BrCa_beta")
+```
+
+```{r instructions, include=FALSE}
+#Note: If you need to explore the data set up further, 
+ #         this will read in the example data from BCRAT tool (remove #)
+          
+          #```{r}
+          
+          #data(exampledata, package="BCRA")
+          #mean(exampledata$RR_Star1)
+          #check.summary(exampledata)
+          #```
+```          
+
+```{r instructions, include=FALSE}
+#Create variables for use in Gail Model 
+#Note: In Gail model, all missing variables are set to the most common
+```
+
+```{r chunk4, echo = FALSE}
+#Here, we restrict our datasets (valdata and valdata2) to include only variables needed for the Gail model and for calibration.
+
+data_gail1 <-valdata[,c("subject_id","id","age","race","ethnicity","agemenarche","ageflb","famhx_first","biopsy_num","atyp_hyp","parous","cohort", "case_5yinv", "case_5y","timediff")]
+
+data_gail2 <-valdata2[,c("subject_id","id","age","race","ethnicity","agemenarche","ageflb","famhx_first","biopsy_num","atyp_hyp","parous","cohort", "case_6yinv", "case_6y","timediff")]
+
+
+```
+
+```{r instructions, include=FALSE}   
+#Reassign values based on Gail parameters
+        # Missing data assignments
+        # The standards used in the online Gail model were used for variables with missing data. 
+        # Women with unknown age at menarche were assigned menarche at 14 years of age or older. 
+        # Women with unknown age at first live birth were classified as giving birth before age 20 years. 
+        # Women with missing family history were classified as having no family history. 
+        # To verify agreement between the code we used and the online tool, we randomly selected 10 patients 
+        # and compared the 5-year and lifetime risk estimates obtained from the code given us to those from the
+        # online risk assessment tool. 
+        # 
+        # For our purposes, assign all Asian under "Chinese" for abs.risk calibration
+        # Consider all hispanics american born
+        # 1=Wh White 1983-87 SEER rates (rates used in NCI BCRAT)
+        # 2=AA African-American
+        # 3=HU Hispanic-American (US born) 1995-04
+        # 4=NA Other (Native American and unknown race)
+        # 5=HF Hispanic-American (Foreign born) 1995-04
+        # 6=Ch Chinese-American
+        # 7=Ja Japanese-American
+        # 8=Fi Filipino-American
+        # 9=Hw Hawaiian-American
+        # 10=oP Other Pacific Islander
+        # 11=oA Other Asian
+
+       # Set end age as age+5 and +10 years
+```
+
+```{r chunk6, include=FALSE}
+data_gail1 <- data_gail1 %>%
+  mutate(gailrace=ifelse(race==1 & ethnicity==1, 3, ifelse(race==1 & ethnicity !=1 ,1, ifelse(race==2, 2, ifelse(race==5, 4, ifelse(race==3, 6,    ifelse(race==4, 9, 4)))))),
+         gailrace=replace(gailrace, is.na(gailrace), 4),
+         gailagemen=ifelse(is.na(agemenarche), 99, agemenarche),
+         gailageflb=replace(ageflb, is.na(ageflb) & parous==0, 98),
+         gailageflb=replace(gailageflb, is.na(gailageflb), 99),
+         gailageflb=replace(gailageflb, gailageflb<gailagemen, 99), #set to missing if less than age at menarche
+         gailnrels=ifelse(is.na(famhx_first), 99, famhx_first),
+         gailbiop=ifelse(is.na(biopsy_num), 99, biopsy_num),
+         gailatyp=ifelse(is.na(atyp_hyp), 99, atyp_hyp),
+         #Brca projection age 
+         gailageend5y=age+5,
+         sampling.fraction=1)
+
+
+data_gail2<-data_gail2 %>%
+  mutate(gailrace=ifelse(race==1 & ethnicity==1, 3, ifelse(race==1 & ethnicity !=1 ,1, ifelse(race==2, 2,   ifelse(race==5, 4, ifelse(race==3, 6,    ifelse(race==4, 9, 4)))))),
+         gailrace=replace(gailrace, is.na(gailrace), 4),
+         gailagemen=ifelse(is.na(agemenarche), 99, agemenarche),
+         gailageflb=replace(ageflb, is.na(ageflb) & parous==0, 98),
+         gailageflb=replace(gailageflb, is.na(gailageflb), 99),
+         gailageflb=replace(gailageflb, gailageflb<gailagemen, 99), 
+         gailnrels=ifelse(is.na(famhx_first), 99, famhx_first),
+         gailbiop=ifelse(is.na(biopsy_num), 99, biopsy_num),
+         gailatyp=ifelse(is.na(atyp_hyp), 99, atyp_hyp),
+         gailageend5y=age+5,
+         sampling.fraction=1)
+```
+
+```{r chunk7, echo = T, results = 'hide'}
+# Here we keep only variables needed for Gail risk prediction and calibration, from the new vars created.
+
+#Years 1-5
+data_gail1<-data_gail1[,c("subject_id","cohort","age","gailageend5y","gailrace","gailagemen","gailageflb","gailnrels","gailbiop","gailatyp", "case_5yinv", "case_5y", "timediff", "sampling.fraction")]
+#Change names
+names(data_gail1)<-c("id","cohort","T1","T2","Race","AgeMen","Age1st","N_Rels","N_Biop","HypPlas","caseinv", "case_any", "timevar","sampling.weights")
+
+#Years 2-6
+data_gail2<-data_gail2[,c("subject_id","cohort","age","gailageend5y","gailrace","gailagemen","gailageflb","gailnrels","gailbiop","gailatyp", "case_6yinv", "case_6y", "timediff","sampling.fraction")]
+#Change names
+names(data_gail2)<-c("id","cohort","T1","T2","Race","AgeMen","Age1st","N_Rels","N_Biop","HypPlas","caseinv", "case_any", "timevar","sampling.weights")
+
+```
+
+```{r chunk8 }
+#Check your dataset!
+
+recodechecktable<-recode.check(data_gail1, Raw_Ind=1)
+test<-recodechecktable[which (recodechecktable$Error_Ind>0),]
+test
+      
+#If any observations show up on this print out then these have errors 
+#that need to be fixed in the assignment of raw gail vars.
+      
+#repeat check for gail data2
+recodechecktable<-recode.check(data_gail2, Raw_Ind=1)
+test2<-recodechecktable[which (recodechecktable$Error_Ind>0),]
+test2
+      
+```
+
+
+## Estimate Relative risk and absolute risk
+```{r chunk9, include=FALSE}      
+#NOTE: This code may take a little bit of time to run (~2 mins)
+
+#relative risk estimation
+relrisk_gail<-relative.risk(data_gail1, Raw_Ind=1)
+#add relative risk to dataset
+data_gail1<-cbind(data_gail1, relrisk_gail)
+#Assign rel risk based on age <50 or >50
+data_gail1$relrisk_gail<-ifelse(data_gail1$T1>=50, data_gail1$RR_Star2, data_gail1$RR_Star1)
+#Calculate absolute risk
+absrisk_gail<-absolute.risk(data_gail1, Raw_Ind=1, Avg_White=0)
+#Add absolute risk to dataset
+data_gail1$absrisk_gail<-absrisk_gail
+#Change abs risk so it is not a % for our calibration functions
+data_gail1$absrisk<-data_gail1$absrisk_gail/100
+
+#Repeat for valdata2 (2-6y follow-up)
+relrisk_gail<-relative.risk(data_gail2, Raw_Ind=1)
+data_gail2<-cbind(data_gail2, relrisk_gail)
+data_gail2$relrisk_gail<-ifelse(data_gail2$T1>=50, data_gail2$RR_Star2, data_gail2$RR_Star1)
+absrisk_gail<-absolute.risk(data_gail2, Raw_Ind=1, Avg_White=0)
+data_gail2$absrisk_gail<-absrisk_gail
+data_gail2$absrisk<-data_gail2$absrisk_gail/100
+```
+
+
+```{r chunk10}
+#Check the data: 
+#Make sure mean for Error_Ind=0, otherwise there is an error in the file
+check.summary(data_gail1, Raw_Ind=1, Avg_White=0)
+check.summary(data_gail2, Raw_Ind=1, Avg_White=0)
+```
+
+```{r chunk11}
+#OPTIONAL CODE: This will save your calculated risks only - replace "filepath here" with where you'd like to save
+#This will be helpful to have on hand if you're willing to store the risks, but does not have to be done if preferred.
+
+data_risks1<-data_gail1[,c("id","cohort","relrisk_gail","absrisk")]
+data_risks2<-data_gail2[,c("id","cohort","relrisk_gail","absrisk")]
+
+#Save absolute risks for Gail model for all if wanted- optional
+#write.csv(data_gail1, "filepath/GailRisks_1to5y_CTS.csv")
+#write.csv(data_gail2, "filepath/GailRisks_2to6y_CTS.csv")
+```
+
+## Relative and absolute risks 1-5y
+
+```{r chunk12}
+#Now we produce the summary estimates
+head(data_gail1)
+a<-summarizerisks(data_gail1, relrisk_gail)
+b<-summarizerisks(data_gail1, absrisk_gail)
+c<-summarizerisks(data_gail1, absrisk)
+gailrisks1<-rbind(a,b,c)
+rownames(gailrisks1)<-c("relrisk", "absriskpct","absrisk")
+gailrisks1
+```
+## Relative and absolute risks 2-6y
+
+```{r chunk13}
+a<-summarizerisks(data_gail2, relrisk_gail)
+b<-summarizerisks(data_gail2, absrisk_gail)
+c<-summarizerisks(data_gail2, absrisk)
+gailrisks2<-rbind(a,b,c)
+rownames(gailrisks2)<-c("relrisk", "absriskpct","absrisk")
+print(gailrisks2)
+```
+
+## Summary relative and absolute risks by race 1-5y
+
+```{r chunk14}
+a<-summarizerisks_race(data_gail1, relrisk_gail)
+b<-summarizerisks_race(data_gail1, absrisk_gail)
+gailrisks_byrace1<-as.data.frame(rbind(a,b))
+gailrisks_byrace1
+```
+## Summary relative and absolute risks by race 2-6y
+
+```{r chunk15}
+a<-summarizerisks_race(data_gail2, relrisk_gail)
+b<-summarizerisks_race(data_gail2, absrisk_gail)
+gailrisks_byrace2<-as.data.frame(rbind(a,b))
+gailrisks_byrace2
+```
+
+## Plot distributions
+
+```{r chunk16,echo=FALSE}
+#Plot distribution of relative risk in Gail model
+ggplot(data_gail1, aes(x=relrisk_gail))+ geom_histogram(binwidth=0.5, fill="lightblue")+labs(x="Relative Risk",y="Frequency") + ggtitle("Relative Risk for Gail Model 1-5y")
+ggplot(data_gail2, aes(x=relrisk_gail))+ geom_histogram(binwidth=0.5, fill="lightblue")+labs(x="Relative Risk",y="Frequency") + ggtitle("Relative Risk for Gail Model 2-6y")
+```
+```{r chunk17,echo=FALSE}
+ggplot(data_gail1, aes(x=absrisk_gail))+ geom_histogram(binwidth=0.5, fill="lightblue")+labs(x="Absolute Risk",y="Frequency") + ggtitle("Absolute Risk (%) for Gail Model 1-5y")
+ggplot(data_gail2, aes(x=absrisk_gail))+ geom_histogram(binwidth=0.5, fill="lightblue")+labs(x="Absolute Risk",y="Frequency") + ggtitle("Absolute Risk (%) for Gail Model 2-6y")
+```
+
+
+```{r chunk18, echo=FALSE, include=FALSE}
+library(iCARE)
+```
+
+
+```{r chunk19, echo=FALSE}
+#Now we will need to restructure dataset to allow for iCARE calibration 
+## 5a. Change timevar to infinity if not a case (invasive or in situ). Print # invasive cases 
+
+
+#Time of onset is time to disease for cases, otherwise Inf
+
+data_gail1 <- data_gail1 %>%
+  mutate(time.of.onset=ifelse(caseinv==1, timevar, Inf),
+         sampling.fraction=ifelse(caseinv==1, 1, sampling.weights))
+
+data_gail2 <- data_gail2 %>%
+  mutate(time.of.onset=ifelse(caseinv==1, timevar, Inf),
+         sampling.fraction=ifelse(caseinv==1, 1, sampling.weights))
+
+## 5b. Add lp and subset
+
+#ADD LP
+data_gail1$lp<-log(data_gail1$relrisk_gail)
+data_gail2$lp<-log(data_gail2$relrisk_gail)
+
+#Create validation data so it matches iCARE 
+
+#study.entry.age=age (same as T1)
+#study.exit.age=age+timevar
+
+data_gail1_val<-data_gail1[,c("id","T1","timevar","caseinv","relrisk_gail","absrisk","time.of.onset","sampling.fraction", "lp","Race", "cohort")]
+data_gail2_val<-data_gail2[,c("id","T1","timevar","caseinv","relrisk_gail","absrisk","time.of.onset","sampling.fraction", "lp","Race", "cohort")] 
+
+#set exit age : minimum of age+timediff and age+5
+data_gail1_val$exitage<-pmin(data_gail1_val$T1+data_gail1_val$timevar, data_gail1_val$T1+5)
+#If missing lastfup assume we have 5y
+data_gail1_val$exitage<-ifelse(is.na(data_gail1_val$exitage),data_gail1_val$T1+5, data_gail1_val$exitage)
+
+data_gail2_val$exitage<-pmin(data_gail2_val$T1+data_gail2_val$timevar, data_gail2_val$T1+5)
+#If missing lastfup assume we have 5y
+data_gail2_val$exitage<-ifelse(is.na(data_gail2_val$exitage),data_gail2_val$T1+5, data_gail2_val$exitage)
+
+data_gail1_val<-data_gail1_val[,c("id","T1","exitage","caseinv","relrisk_gail","absrisk","time.of.onset","sampling.fraction", "lp","Race", "cohort")] 
+data_gail2_val<-data_gail2_val[,c("id","T1","exitage","caseinv","relrisk_gail","absrisk","time.of.onset","sampling.fraction", "lp","Race", "cohort")] 
+
+#Rename columns so it matches iCARE scheme
+colnames(data_gail1_val)<-c("id","study.entry.age","study.exit.age","observed.outcome","relrisk_gail","absrisk", "time.of.onset","sampling.weights","lp", "race","cohort")
+colnames(data_gail2_val)<-c("id","study.entry.age","study.exit.age","observed.outcome","relrisk_gail","absrisk", "time.of.onset","sampling.weights","lp", "race","cohort")
+```
+
+## Calibration Results
+
+### E/O Overall
+
+```{r chunk20,echo=FALSE}
+#Gail overall: data_validategail_full
+a<-obsexpected_overall(data_gail1_val)
+a<-as.data.frame(a)
+b<-obsexpected_overall(data_gail2_val)
+b<-as.data.frame(b)
+rownames(a)<-"1-5y"
+rownames(b)<-"2-6y"
+c<-rbind(a,b)
+c
+```
+
+### E/O by decile
+
+```{r chunk21,echo=FALSE}
+#E/O by category of absolute risk
+decile<-c(1:10)
+eocat1<-obsexpected_bycat_abs(data_gail1_val)
+eocat1<-cbind(decile, eocat1)
+print("E/O by decile-1-5y")
+eocat1
+eocat2<-obsexpected_bycat_abs(data_gail2_val)
+eocat2<-cbind(decile, eocat2)
+print("E/O by decile-2-6y")
+eocat2
+```
+
+
+### Absolute risk plot data
+
+```{r chunk22, echo=FALSE}
+absrisk_bycat_abs_gail1<-as.data.frame(returnabsrisk_abs(data_gail1_val))
+print("Absolute risk by absolute risk decile")
+absrisk_bycat_abs_gail1
+
+absrisk_bycat_abs_gail2<-as.data.frame(returnabsrisk_abs(data_gail2_val))
+print("Absolute risk by absolute risk decile")
+absrisk_bycat_abs_gail2
+```
+
+### Calibration plot of absolute risk
+
+```{r chunk23}
+a1<-suppressWarnings(plotcalibration_abs(absrisk_bycat_abs_gail1))
+plot(a1)
+
+b1<-suppressWarnings(plotcalibration_abs(absrisk_bycat_abs_gail2))
+plot(b1)
+```
+
+### Calibration plot of absolute risk #2
+
+```{r chunk24}
+a2<-suppressWarnings(plotcalibration_abs2(absrisk_bycat_abs_gail1))
+plot(a2)
+
+b2<-suppressWarnings(plotcalibration_abs2(absrisk_bycat_abs_gail2))
+plot(b2)
+```
+
+## AUC for Gail model
+
+### AUC for relative risk
+
+```{r chunk25}
+AUC1<-as.data.frame(AUCcalc(data_gail1_val))
+AUC2<-as.data.frame(AUCcalc(data_gail1_val))
+rownames(AUC1)<-"1-5y"
+rownames(AUC2)<-"2-6y"
+c<-rbind(AUC1, AUC2)
+print("AUC")
+c
+```
+### AUC absolute risk
+
+```{r chunk26}
+AUC1absrisk<-as.data.frame(AUCcalc_absrisk(data_gail1_val))
+
+AUC2absrisk<-as.data.frame(AUCcalc_absrisk(data_gail2_val))
+rownames(AUC1absrisk)<-"1-5y"
+rownames(AUC2absrisk)<-"2-6y"
+c<-rbind(AUC1absrisk, AUC2absrisk)
+print("AUC absrisk")
+c
+```
+## AUC absolute risk with age adjustment
+
+```{r chunk27}
+AUC1<-as.data.frame(AUCcalc_absrisk_ageadjust(data_gail1_val))
+print("AUC age adjusted overall")
+AUC1
+
+AUC2<-as.data.frame(AUCcalc_absrisk_ageadjust(data_gail2_val))
+print("AUC age adjusted overall")
+AUC2
+
+```
+
+
+```{r instructions, include=FALSE}
+#You will now need to run rmarkdown::render in your R Console. This cannot be included in the .Rmd file directly, or it will iteratively run.
+#Please enter this code into the console:
+#     rmarkdown::render("FILEPATH/Ext_Model_Calibration_Gail.Rmd")
+#The resulting .html file will be called Ext_Model_Calibration_Gail as well, and will be found in the same file path as that of your .Rmd file.
+```
