@@ -44,6 +44,7 @@ if (class(data_core$subject_id) !="character"){print ("Error: Subject ID not cha
   
   #Change id to character if numeric
   if (class(data_core$id) !="character"){data_core$subject_id<-as.character(data_core$id)}
+  if (class(data_brca$id) !="character"){data_brca$subject_id<-as.character(data_brca$id)}
 
   #The following code will warn you if the formats do not match between CORE and BRCA
 
@@ -301,8 +302,9 @@ if (dim(data_brca)[1]==dim(data_core)[1]){
            record_year=as.numeric(record_year),
            
            #Change dx year so it is year not days for WHI
-           dxyear_primary1=ifelse(cohort=="WHI" & (dxdate_primary1==8888| dxdate_primary1==888 | dxdate_primary1==7777 | dxdate_primary1==777 ), NA, round((1900+dxdate_primary1/365),0)),
-           dxyear_primary2=ifelse(cohort=="WHI" & (dxdate_primary2==8888| dxdate_primary2==888 | dxdate_primary2==7777 | dxdate_primary2==777), NA, round((1900+dxdate_primary2/365),0)),
+           #not sure if there is a coding error here - that if cohort == WHI then recording dxyear_primary1 as NA?
+          # dxyear_primary1=ifelse(cohort=="WHI" & (dxdate_primary1==8888| dxdate_primary1==888 | dxdate_primary1==7777 | dxdate_primary1==777 ), NA, round((1900+dxdate_primary1/365),0)),
+          # dxyear_primary2=ifelse(cohort=="WHI" & (dxdate_primary2==8888| dxdate_primary2==888 | dxdate_primary2==7777 | dxdate_primary2==777), NA, round((1900+dxdate_primary2/365),0)),
            
            #change variable to dxyear, as numeric for all other cohorts
            dxyear_primary1=ifelse(dxdate_primary1==8888| dxdate_primary1==888 | dxdate_primary1==7777 | dxdate_primary1==777, NA, suppressWarnings(as.numeric(dxdate_primary1))),
@@ -361,11 +363,14 @@ if (dim(data_brca)[1]==dim(data_core)[1]){
       age_outlier    =ifelse(age<18 & !is.na(age), 1,
                              ifelse(!is.na(age) & age>100, 1, 0)),
       height_outlier        =ifelse(height<120, 1,
-                                    ifelse(height<666 & height>200, 1, 0)),
+                                    ifelse(height<888 & height>200, 1, 
+                                           ifelse(height>888, 1, 0))),
       weight_outlier        =ifelse(weight<35,1,
-                                    ifelse(weight<666 & weight>150, 1, 0)),
+                                    ifelse(weight<888 & weight>150, 1, 
+                                           ifelse(weight>888, 1, 0))),
       bmi_outlier           =ifelse(bmi<=15, 1,
-                                    ifelse(bmi<666& bmi>50, 1, 0)),
+                                    ifelse(bmi<888 & bmi>50, 1, 
+                                           ifelse(bmi>888, 1,0))),
       waist_outlier         =ifelse(waist<=50, 1,
                                     ifelse(waist<666& waist>160, 1, 0)),
       hip_outlier           =ifelse(hip<70, 1,
@@ -539,9 +544,10 @@ if (dim(data_brca)[1]==dim(data_core)[1]){
   data4<-data3 %>%
     mutate(
       
-      agemenarche_cat3=ifelse(agemenarche>0 & agemenarche<12, 1, 
-                              ifelse(agemenarche >=12 & agemenarche<14, 2, 
-                                     ifelse(agemenarche >=14, 3, NA))), 
+      agemenarche_cat3=case_when(agemenarche >0 & agemenarche<12 ~ 1,
+                                 agemenarche >=12 & agemenarche<14 ~ 2,
+                                 agemenarche >=14 ~ 3,
+                                 TRUE ~ NA_real_),
       agemenarche_cat7=ifelse(agemenarche>0 & agemenarche<10.5, 1, 
                               ifelse(agemenarche>=10.5 & agemenarche<11.5, 2, 
                                      ifelse(agemenarche>=11.5 & agemenarche<12.5, 3, 
@@ -658,21 +664,28 @@ if (dim(data_brca)[1]==dim(data_core)[1]){
                            ifelse(hrt_use==2, 1,
                                   ifelse(hrt_use==3, 2, 
                                          NA))),
-      pmh_type_cur=ifelse(hrtuse==0|hrtuse==2, 1, 
-                          ifelse(hrtuse_eonly==1, 3, 
-                                 ifelse(hrtuse_ep==1, 4,
-                                        ifelse (hrtuse==1, 2, NA)))),
-      pmh_type_icare=ifelse(pmh_type_cur==3, 0, ifelse(pmh_type_cur==4, 1, NA)), 
-      pmh_type_any=ifelse(hrtuse==0, 1, 
-                          ifelse((hrtuse==2|hrtuse==3) & hrtuse_eonly!=2 & hrtuse_eonly!=3 & hrtuse_ep!=2 & hrtuse_ep!=3, 2, 
-                                 ifelse((hrtuse==2 | hrtuse==3) & (hrtuse_eonly==2 | hrtuse_eonly==3), 3, 
-                                        ifelse((hrtuse==2 | hrtuse==3) & (hrtuse_ep==2|hrtuse_ep==3), 4, 
-                                               ifelse(pmh_type_cur==2, 5, 
-                                                      ifelse(pmh_type_cur==3, 6, 
-                                                             ifelse(pmh_type_cur==4, 7, NA))))))),
+      pmh_type_cur=case_when(hrtuse==0|hrtuse==2~ 1, 
+                             hrtuse==1 & hrtuse_eonly==1 ~ 3, 
+                             hrtuse==1 & hrtuse_ep==1~ 4,
+                             (hrtuse==1 & (is.na(hrtuse_eonly) | hrtuse_eonly >1) & (is.na(hrtuse_ep)| hrtuse_ep>1)) ~2,
+                             TRUE~NA_real_),
+      
+      pmh_type_icare=case_when(pmh_type_cur==3 ~ 0, 
+                               pmh_type_cur==4 ~ 1, 
+                               TRUE~ NA_real_), 
+      pmh_type_any=case_when(hrtuse==0 ~ 1,
+                             pmh_type_cur==2 ~ 5,
+                             pmh_type_cur==3 ~ 6,
+                             pmh_type_cur==4 ~ 7,
+                             (hrtuse>=2 & (hrtuse_eonly==2 | hrtuse_eonly==3)) ~ 3, 
+                             (hrtuse>=2 & (hrtuse_ep==2|hrtuse_ep==3)) ~ 4, 
+                             (hrtuse>=2 & (hrtuse_eonly ==1 | is.na(hrtuse_eonly)) & (hrtuse_ep==1 | is.na(hrtuse_ep)))~ 2,
+                             TRUE ~ NA_real_),
       
       #reclassify alcohol status if "unkn. current or former and has alcohol_amt list for current use, change to current
-      alcohol_status=ifelse(alcohol_amt>0 & !is.na(alcohol_amt) & alcohol_status==3, 1, alcohol_status),
+      alcohol_status=ifelse(alcohol_amt>0 & !is.na(alcohol_amt) & alcohol_status==3, 1, 
+                            ifelse(alcohol_amt==0 & !is.na(alcohol_amt) & alcohol_status==3, 2, alcohol_status)),
+                            
       
       #Only assign an amount if they listed current drinker or unknown current/never, otherwise 0 if not current drinker, NA if unk. 
       alcgm=ifelse(alcohol_status==2 | alcohol_status==4, 0,
