@@ -1,7 +1,7 @@
 ---
 title: "Ext_Model_Calibration_TC.Rmd"
 output: html_document
-date: "2025-MM-DD"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 ---
 
 ```{r include=FALSE}
@@ -19,8 +19,8 @@ options(knitr.duplicate.label="allow")
 #functions
 source("FILEPATH/Functions_ExistingModelValidation.R",local=knitr::knit_global())
 
-if(!require(tidyverse)){
-  install.packages("tidyverse")
+if(!require(dplyr)){
+  install.packages("dplyr")
   suppress.warnings(library("dplyr"))
 }
 if(!require(tidyverse)){
@@ -75,7 +75,7 @@ names(TCrisk_assump1_2to6y)<-c("tyid","absrisk")
 
 ```
 
-##Risk summaries for all datasets
+## Risk summaries for all datasets
 
 ```{r echo=FALSE}
 risksummary1<-summarizerisks(TCrisk_assump1_1to5y,absrisk)
@@ -85,6 +85,10 @@ risks<-rbind(risksummary1, risksummary2)
 risks
 ```
 
+```{r Step2Create2datasets, echo=FALSE, include=FALSE}
+# Knit the Step2.Create2datasets.Rmd inside this file to get valdata and valdata2 into the same environment when rendering
+knitr::knit_child("FILEPATH/Step2.Create2datasets.Rmd", quiet = TRUE)
+```
 
 ```{r include=FALSE}
 
@@ -94,9 +98,10 @@ risks
 
 #Link absolute risk data with TC data by merging all 
 #You will need to run Step2.Create2datasets.Rmd so that you have the datasets named "valdata" and "valdata2" stored in your R environment.
+# Note: By running Step2.Create2datasets.Rmd and then rendering this script, the code rm(list=ls()) will remove "valdata" and "valdata2" from the environment. The data must be uploaded into the same environment the rendering occurs. See chunk above. 
 
 head(valdata2$subject_id)
-head(TCrisk_assump2_1to5y)
+head(TCrisk_assump1_1to5y)
 #ids for the iCARE calibration cannot have "_" or "-"
 
 valdata<-valdata %>%
