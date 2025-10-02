@@ -32,9 +32,8 @@ data_core$cohort<-"ACRONYM"
 #Format for id= ID,                e.g.: "X0021190"
 
 #Ensure class is character
-if (class(data_core$subject_id) !="character"){print ("Error: Subject ID not character")}
-
-  #Note: If this error occurs please check your data
+if (class(data_core$id) !="character"){data_core$subject_id<-as.character(data_brca$id)}
+if (class(data_brca$id) !="character"){data_brca$subject_id<-as.character(data_brca$id)}
 
 #Data checks - ensure IDs align
   
@@ -300,11 +299,6 @@ if (dim(data_brca)[1]==dim(data_core)[1]){
     mutate(record_date=ifelse(record_date=="08/08/8000", NA, record_date),
            record_year=substr(record_date, 7,10), 
            record_year=as.numeric(record_year),
-           
-           #Change dx year so it is year not days for WHI
-           #not sure if there is a coding error here - that if cohort == WHI then recording dxyear_primary1 as NA?
-          # dxyear_primary1=ifelse(cohort=="WHI" & (dxdate_primary1==8888| dxdate_primary1==888 | dxdate_primary1==7777 | dxdate_primary1==777 ), NA, round((1900+dxdate_primary1/365),0)),
-          # dxyear_primary2=ifelse(cohort=="WHI" & (dxdate_primary2==8888| dxdate_primary2==888 | dxdate_primary2==7777 | dxdate_primary2==777), NA, round((1900+dxdate_primary2/365),0)),
            
            #change variable to dxyear, as numeric for all other cohorts
            dxyear_primary1=ifelse(dxdate_primary1==8888| dxdate_primary1==888 | dxdate_primary1==7777 | dxdate_primary1==777, NA, suppressWarnings(as.numeric(dxdate_primary1))),
@@ -764,4 +758,5 @@ write.csv(valdata, "FILEPATH/bcrpp_valdata.csv")
 
 #The dataset for validation is "valdata". Variables should be column names, Ids should be rows.
 #I have found that R markdown will not always work if you "source" this file as opposed
+
 #to saving the dataset and reading it in, which is why I suggest saving the dataset here for validation. 
